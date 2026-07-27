@@ -182,12 +182,10 @@ const PriceCard = ({
             variant={showPhone ? "secondary" : "outline"} 
             className="h-10 rounded font-bold text-[11px] sm:text-xs transition-all active:scale-95 text-ellipsis whitespace-nowrap overflow-hidden"
             onClick={() => {
-              if (!isAuthenticated) {
-                openAuthModal(`/anuncio/${listing.id}`);
-                return;
-              }
-              if (!showPhone) incrementListingClick(listing.id, "contact");
-              setShowPhone(!showPhone);
+              const phoneNumber = (listing.phone || "923 000 000").replace(/\s+/g, "");
+              incrementListingClick(listing.id, "contact");
+              setShowPhone(true);
+              window.location.href = `tel:${phoneNumber}`;
             }}
           >
             <Phone className="h-3.5 w-3.5 mr-1 shrink-0" /> {showPhone ? (listing.phone || "923 000 000") : "Contacto"}
@@ -265,6 +263,7 @@ const Anuncio = () => {
   const { toast } = useToast();
   const { isFavorite, toggleFavorite } = useFavorites();
   const { getUpdatedListing, rateListing, getListingRating } = useRatings();
+  const { isAuthenticated, openAuthModal } = useAuth();
   
   const rawListing = useMemo(() => listings.find(l => l.id === id), [id]);
   const listing = useMemo(() => rawListing ? getUpdatedListing(rawListing) : undefined, [rawListing, getUpdatedListing]);
@@ -285,6 +284,10 @@ const Anuncio = () => {
 
   const handleRate = (value: number) => {
     if (!listing) return;
+    if (!isAuthenticated) {
+      openAuthModal(`/anuncio/${listing.id}`);
+      return;
+    }
     rateListing(listing.id, value);
     toast({
       title: "Classificação registada!",
@@ -568,13 +571,16 @@ const Anuncio = () => {
                       );
                     })}
                   </div>
-                  <p className="text-xs text-muted-foreground font-medium">{listingRatingStats.totalCount} opiniões registadas</p>
                 </div>
 
                 {/* Rating interact tool */}
                 <div className="bg-muted/30 rounded p-4 border border-border/20 max-w-sm w-full space-y-2">
                   <h4 className="font-bold text-xs">Achas que este artigo é o que esperavas?</h4>
-                  <p className="text-[10px] text-muted-foreground">Deixa o teu voto para apoiar outros utilizadores na plataforma do Aqkianda.</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {isAuthenticated 
+                      ? "Deixa o teu voto para apoiar outros utilizadores na plataforma do Aqkianda."
+                      : "Inicia sessão para deixar a tua classificação de estrelas."}
+                  </p>
                   <div className="flex items-center gap-1.5 pt-1">
                     {[1, 2, 3, 4, 5].map((starValue) => {
                       const isHighlighted = starValue <= (hoverRating || listingRatingStats.userRating || 0);
@@ -582,10 +588,10 @@ const Anuncio = () => {
                         <button
                           key={starValue}
                           type="button"
-                          onMouseEnter={() => setHoverRating(starValue)}
-                          onMouseLeave={() => setHoverRating(0)}
+                          onMouseEnter={() => isAuthenticated && setHoverRating(starValue)}
+                          onMouseLeave={() => isAuthenticated && setHoverRating(0)}
                           onClick={() => handleRate(starValue)}
-                          className="p-0.5 transition-transform hover:scale-110 active:scale-95"
+                          className="p-0.5 transition-transform hover:scale-110 active:scale-95 cursor-pointer"
                           aria-label={`Avaliar com ${starValue} estrelas`}
                         >
                           <Star
@@ -602,35 +608,14 @@ const Anuncio = () => {
                       <Check className="h-3.5 w-3.5 shrink-0" /> Obrigado pelo teu voto ({listingRatingStats.userRating} estrelas)!
                     </p>
                   )}
-                </div>
-              </div>
-
-              {/* Simulated Customer Comments */}
-              <div className="border-t border-border/20 pt-4 space-y-3.5">
-                <h4 className="font-bold text-xs text-foreground/80">Opiniões recentes de outros compradores</h4>
-                <div className="space-y-3">
-                  <div className="text-xs space-y-1 bg-muted/20 p-4 rounded border border-border/10">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold">Afonso Dias</span>
-                      <span className="text-muted-foreground text-[10px]">Há 3 dias</span>
-                    </div>
-                    <div className="flex items-center gap-0.5">
-                      {[1, 2, 3, 4, 5].map(v => <Star key={v} className="h-3 w-3 fill-gold text-gold" />)}
-                    </div>
-                    <p className="text-muted-foreground leading-relaxed mt-1">Excelente artigo! O vendedor foi simpático e respondeu muito rápido ao chat.</p>
-                  </div>
-
-                  <div className="text-xs space-y-1 bg-muted/20 p-4 rounded border border-border/10">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold">Elizângelo M.</span>
-                      <span className="text-muted-foreground text-[10px]">Há 1 semana</span>
-                    </div>
-                    <div className="flex items-center gap-0.5">
-                      {[1, 2, 3, 4].map(v => <Star key={v} className="h-3 w-3 fill-gold text-gold" />)}
-                      <Star className="h-3 w-3 text-muted/30" />
-                    </div>
-                    <p className="text-muted-foreground leading-relaxed mt-1">Em muito bom estado de conservação, o preço é justo. Recomendo o vendedor.</p>
-                  </div>
+                  {!isAuthenticated && (
+                    <button 
+                      onClick={() => openAuthModal(`/anuncio/${listing.id}`)}
+                      className="text-[11px] text-primary hover:underline font-bold block pt-1 cursor-pointer text-left"
+                    >
+                      Entrar / Criar Conta para avaliar
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
