@@ -1,60 +1,35 @@
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { ArrowRight, Loader2 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { ArrowRight, Loader2, Clock } from "lucide-react";
 import { useState } from "react";
+import { useAuth } from "@/context/AuthContext";
 
 const Entrar = () => {
-  const { toast } = useToast();
+  const { login, loginWithGoogle } = useAuth();
   const nav = useNavigate();
+  const [searchParams] = useSearchParams();
+  const redirectTarget = searchParams.get("redirect") || "/";
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
-  const handleEmailLogin = (e: React.FormEvent) => {
+  const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) return;
 
     setIsLoading(true);
-    setTimeout(() => {
-      // Simulate successful login
-      const mockUser = {
-        name: email.split("@")[0].toUpperCase() || "João Manuel",
-        email: email,
-        avatar: email.charAt(0).toUpperCase()
-      };
-      localStorage.setItem("user", JSON.stringify(mockUser));
-      setIsLoading(false);
-      
-      toast({
-        title: "Sessão iniciada!",
-        description: `Bem-vindo de volta, ${mockUser.name}!`,
-      });
-      nav("/");
-    }, 1200);
+    await login(email, password, redirectTarget);
+    setIsLoading(false);
   };
 
-  const handleGoogleLogin = () => {
+  const handleGoogleLogin = async () => {
     setIsGoogleLoading(true);
-    setTimeout(() => {
-      // Simulate Google Login popup success
-      const mockUser = {
-        name: "Elizângelo Manuel",
-        email: "elizangelomanuel@gmail.com",
-        avatar: "EM"
-      };
-      localStorage.setItem("user", JSON.stringify(mockUser));
-      setIsGoogleLoading(false);
-
-      toast({
-        title: "Acesso via Google Autorizado!",
-        description: `Sessão iniciada com a conta elizangelomanuel@gmail.com`,
-      });
-      nav("/");
-    }, 1500);
+    await loginWithGoogle(redirectTarget);
+    setIsGoogleLoading(false);
   };
 
   return (

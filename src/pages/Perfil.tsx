@@ -6,10 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { listings, Listing, slugify } from "@/data/listings";
-import { Star, MapPin, Mail, Settings, Plus, Package, Heart, LogOut, Camera, ShieldCheck, Lock, Eye, Smartphone, KeyRound, Bell, EyeOff, Trash2, Edit } from "lucide-react";
+import { Star, MapPin, Mail, Settings, Plus, Package, Heart, LogOut, Camera, ShieldCheck, Lock, Eye, Smartphone, KeyRound, Bell, EyeOff, Trash2, Edit, UserX } from "lucide-react";
 import { Link, useSearchParams, useParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/context/AuthContext";
 
 interface PromoCampaign {
   id: string;
@@ -42,6 +43,7 @@ const Perfil = () => {
   const { toast } = useToast();
   const { name: routeName } = useParams();
   const navigate = useNavigate();
+  const { user, isAuthenticated, openAuthModal, logout, loginWithGoogle } = useAuth();
 
   const [localListings, setLocalListings] = useState<Listing[]>([]);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
@@ -56,24 +58,13 @@ const Perfil = () => {
   const [selectedDiscount, setSelectedDiscount] = useState<number>(20);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem("user");
-    let currentUserName = "João Manuel";
-    if (storedUser) {
-      try {
-        const u = JSON.parse(storedUser);
-        if (u && u.name) {
-          currentUserName = u.name;
-        }
-      } catch (e) {
-        console.error(e);
-      }
-    }
-
+    if (!isAuthenticated) return;
+    const currentUserName = user?.name || "O Meu Perfil";
     const expectedName = slugify(currentUserName);
     if (!routeName || routeName !== expectedName) {
       navigate(`/perfil/${expectedName}${activeTab !== "anuncios" ? `?tab=${activeTab}` : ""}`, { replace: true });
     }
-  }, [routeName, navigate, activeTab]);
+  }, [routeName, navigate, activeTab, isAuthenticated, user]);
 
   useEffect(() => {
     // 1. Promo events
@@ -290,11 +281,14 @@ const Perfil = () => {
     localStorage.setItem("aqkianda-seller-notifications", JSON.stringify(updated));
   };
 
+  const userName = user?.name || "Utilizador";
+  const userInitials = user?.avatar || userName.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase() || "AO";
+
   // Listings for the "Meus Anúncios" tab (only visible/not hidden)
-  const myListings = localListings.filter(l => l.seller === "João Manuel" && !hiddenIds.includes(l.id));
+  const myListings = localListings.filter(l => (l.seller.toLowerCase() === userName.toLowerCase() || l.seller === "João Manuel") && !hiddenIds.includes(l.id));
 
   // Listings for the "Anúncios Ocultos" tab
-  const hiddenMyListings = localListings.filter(l => l.seller === "João Manuel" && hiddenIds.includes(l.id));
+  const hiddenMyListings = localListings.filter(l => (l.seller.toLowerCase() === userName.toLowerCase() || l.seller === "João Manuel") && hiddenIds.includes(l.id));
 
   const tabs = [
     { id: "anuncios", label: "Meus Anúncios", icon: Package },
@@ -303,6 +297,70 @@ const Perfil = () => {
     { id: "config", label: "Definições", icon: Settings },
     { id: "seguranca", label: "Segurança", icon: ShieldCheck },
   ];
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col">
+        <Header />
+        <main className="flex-1 container mx-auto px-4 py-12 sm:py-16 flex flex-col items-center justify-center text-center">
+          <div className="w-full max-w-sm sm:max-w-md bg-card border border-border/60 rounded-3xl p-6 sm:p-8 shadow-card flex flex-col items-center text-center">
+            <div className="h-14 w-14 sm:h-16 sm:w-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-5 shadow-sm border border-primary/20">
+              <UserX className="h-7 w-7 sm:h-8 sm:w-8" />
+            </div>
+            <h1 className="text-xl sm:text-2xl font-bold text-foreground mb-2">
+              Perfil Privado
+            </h1>
+            <p className="text-muted-foreground text-xs sm:text-sm mb-6 leading-relaxed">
+              Inicia sessão ou cria a tua conta na Aqkianda para veres o teu perfil, gerir os teus anúncios, aceder aos teus artigos guardados e gerir as tuas vendas.
+            </p>
+            
+            <div className="w-full space-y-3">
+              <Button
+                type="button"
+                onClick={() => loginWithGoogle("/perfil")}
+                className="w-full h-11 sm:h-12 rounded-xl bg-white dark:bg-gray-900 border-2 border-primary/30 hover:border-primary text-gray-900 dark:text-white font-bold text-xs sm:text-sm shadow-sm transition-all flex items-center justify-center gap-2.5 active:scale-[0.98]"
+              >
+                <svg className="h-4 w-4 sm:h-5 sm:w-5 shrink-0" viewBox="0 0 24 24" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
+                  <g transform="matrix(1, 0, 0, 1, 0, 0)">
+                    <path d="M21.35,11.1H12v2.7h5.38c-0.24,1.28 -0.96,2.37 -2.04,3.1v2.57h3.3c1.93,-1.78 3.04,-4.4 3.04,-7.49C21.68,11.75 21.56,11.41 21.35,11.1z" fill="#4285F4" />
+                    <path d="M12,20.62c2.43,0 4.47,-0.8 5.96,-2.18l-3.3,-2.57c-0.9,0.61 -2.07,0.98 -3.36,0.98c-2.34,0 -4.33,-1.58 -5.03,-3.72l-3.41,2.64C4.12,18.42 7.77,20.62 12,20.62z" fill="#34A853" />
+                    <path d="M6.97,13.13c-0.18,-0.54 -0.28,-1.11 -0.28,-1.7s0.1,-1.16 0.28,-1.7l-3.41,-2.64C3.07,8.08 2.76,9.51 2.76,11s0.31,2.92 0.8,4.27l3.41,-2.64z" fill="#FBBC05" />
+                    <path d="M12,6.01c1.32,0 2.51,0.45 3.44,1.35l2.58,-2.58C16.46,3.31 14.42,2.5 12,2.5c-4.23,0 -7.88,2.2 -9.44,4.77l3.41,2.64C6.67,7.59 8.66,6.01 12,6.01z" fill="#EA4335" />
+                  </g>
+                </svg>
+                <span>Continuar com o Google</span>
+              </Button>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <Button 
+                  variant="outline"
+                  onClick={() => navigate("/entrar?redirect=/perfil")}
+                  className="w-full h-10 font-semibold rounded-xl text-xs"
+                >
+                  Fazer Login
+                </Button>
+                <Button 
+                  onClick={() => navigate("/registar?redirect=/perfil")}
+                  className="w-full h-10 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-xl text-xs shadow-sm"
+                >
+                  Criar Conta
+                </Button>
+              </div>
+
+              <Button 
+                variant="ghost"
+                onClick={() => navigate("/")}
+                className="w-full h-9 font-medium text-xs text-muted-foreground hover:text-foreground mt-2"
+              >
+                Voltar à Página Inicial
+              </Button>
+            </div>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -320,7 +378,7 @@ const Perfil = () => {
           <div className="relative flex flex-col md:flex-row items-center md:items-start gap-8">
             <div className="relative group">
               <div className="h-32 w-32 rounded-[2rem] gradient-hero flex items-center justify-center font-display font-bold text-5xl text-primary-foreground shadow-elevated">
-                JM
+                {userInitials}
               </div>
               <button className="absolute -bottom-2 -right-2 h-10 w-10 rounded-full bg-card text-foreground border border-border shadow-card flex items-center justify-center hover:text-primary transition-smooth opacity-0 group-hover:opacity-100">
                 <Camera className="h-5 w-5" />
@@ -329,16 +387,16 @@ const Perfil = () => {
 
             <div className="flex-1 text-center md:text-left">
               <div className="flex flex-col md:flex-row md:items-center gap-3 mb-3">
-                <h1 className="font-display font-bold text-3xl md:text-4xl">João Manuel</h1>
+                <h1 className="font-display font-bold text-3xl md:text-4xl">{userName}</h1>
                 <div className="inline-flex items-center gap-1.5 bg-accent/20 text-accent px-4 py-1 rounded-full text-xs font-bold mx-auto md:mx-0">
-                  <ShieldCheck className="h-4 w-4" /> Vendedor Pro
+                  <ShieldCheck className="h-4 w-4" /> Conta Verificada
                 </div>
               </div>
 
               <div className="flex flex-wrap justify-center md:justify-start items-center gap-x-6 gap-y-2 text-sm text-secondary-foreground/70">
-                <span className="flex items-center gap-1.5"><Star className="h-4 w-4 fill-gold text-gold" /> 4.9 (48 vendas)</span>
-                <span className="flex items-center gap-1.5"><MapPin className="h-4 w-4" /> Luanda, Angola</span>
-                <span className="flex items-center gap-1.5"><Mail className="h-4 w-4" /> joao.manuel@email.ao</span>
+                <span className="flex items-center gap-1.5"><Star className="h-4 w-4 fill-gold text-gold" /> 5.0 (Conta Ativa)</span>
+                <span className="flex items-center gap-1.5"><MapPin className="h-4 w-4" /> {user?.province || "Luanda, Angola"}</span>
+                <span className="flex items-center gap-1.5"><Mail className="h-4 w-4" /> {user?.email || "utilizador@email.ao"}</span>
               </div>
 
               <div className="mt-8 flex flex-wrap justify-center md:justify-start gap-3">

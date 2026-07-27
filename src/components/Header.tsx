@@ -5,12 +5,13 @@ import { Input } from "@/components/ui/input";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "@/context/ThemeContext";
+import { useAuth } from "@/context/AuthContext";
 
 const Header = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [user, setUser] = useState<{ name: string; email: string; phone?: string } | null>(null);
+  const { user, isAuthenticated, logout, openAuthModal } = useAuth();
   const loc = useLocation();
   const nav = useNavigate();
   const { isDark, toggleTheme } = useTheme();
@@ -25,28 +26,16 @@ const Header = () => {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("user");
-    setUser(null);
+    logout();
     setIsProfileMenuOpen(false);
     setIsMobileMenuOpen(false);
     nav("/");
   };
 
-  // Close menus on route change and load current user from localStorage
+  // Close menus on route change
   useEffect(() => {
     setIsMobileMenuOpen(false);
     setIsProfileMenuOpen(false);
-
-    const storedUser = localStorage.getItem("user");
-    if (storedUser) {
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch (err) {
-        setUser(null);
-      }
-    } else {
-      setUser(null);
-    }
   }, [loc.pathname]);
 
   return (

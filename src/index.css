@@ -99,12 +99,44 @@
 }
 
 @layer base {
-  * { @apply border-border; }
-  html { font-family: 'Inter', system-ui, sans-serif; }
+  * { 
+    @apply border-border; 
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+  
+  *::-webkit-scrollbar {
+    display: none !important;
+    width: 0px !important;
+    height: 0px !important;
+    background: transparent !important;
+  }
+
+  html { 
+    font-family: 'Inter', system-ui, sans-serif; 
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+    margin: 0;
+    padding: 0;
+  }
+
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "ss01", "cv11";
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+    margin: 0;
+    padding: 0;
   }
+
+  #root {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
   h1, h2, h3, h4, h5 { font-family: 'Sora', sans-serif; @apply tracking-tight; }
 }
 
@@ -121,6 +153,23 @@
   .transition-spring { transition: var(--transition-spring); }
   .text-gold { color: hsl(var(--gold)); }
   .bg-gold { background-color: hsl(var(--gold)); }
+
+  .no-scrollbar::-webkit-scrollbar,
+  .scrollbar-none::-webkit-scrollbar,
+  .scrollbar-hide::-webkit-scrollbar,
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+
+  .no-scrollbar,
+  .scrollbar-none,
+  .scrollbar-hide,
+  .hide-scrollbar {
+    -ms-overflow-style: none !important;
+    scrollbar-width: none !important;
+  }
 }
 
 /* Smoky wave animations */

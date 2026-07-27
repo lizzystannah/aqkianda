@@ -2,9 +2,10 @@ import { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import { Send, Search, ArrowLeft, Image as ImageIcon, X, Paperclip, ZoomIn } from "lucide-react";
+import { Send, Search, ArrowLeft, Image as ImageIcon, X, Paperclip, ZoomIn, Lock, MessageSquare } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/context/AuthContext";
 
 type Msg = { 
   from: "me" | "them"; 
@@ -47,6 +48,7 @@ const DEFAULT_MESSAGES: Record<string, Msg[]> = {
 const Mensagens = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { isAuthenticated, openAuthModal, loginWithGoogle } = useAuth();
   const routeState = location.state as { sellerName?: string; productName?: string } | null;
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -91,7 +93,7 @@ const Mensagens = () => {
     if (chatScrollRef.current) {
       chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
     }
-  }, [msgs, attachedImage, activeId]);
+  }, [messagesMap, attachedImage, activeId]);
 
   // Check route state on load/change
   useEffect(() => {
@@ -230,11 +232,75 @@ const Mensagens = () => {
       c.product.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col">
+        <Header />
+        <main className="flex-1 container mx-auto px-4 py-12 sm:py-16 flex flex-col items-center justify-center text-center">
+          <div className="w-full max-w-sm sm:max-w-md bg-card border border-border/60 rounded-3xl p-6 sm:p-8 shadow-card flex flex-col items-center text-center">
+            <div className="h-14 w-14 sm:h-16 sm:w-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-5 shadow-sm border border-primary/20">
+              <Lock className="h-7 w-7 sm:h-8 sm:w-8" />
+            </div>
+            <h1 className="text-xl sm:text-2xl font-bold text-foreground mb-2">
+              Mensagens Privadas
+            </h1>
+            <p className="text-muted-foreground text-xs sm:text-sm mb-6 leading-relaxed">
+              Para veres o teu histórico de conversas, negociar artigos e comunicar em segurança com vendedores ou compradores em Angola, inicia sessão.
+            </p>
+            
+            <div className="w-full space-y-3">
+              <Button
+                type="button"
+                onClick={() => loginWithGoogle("/mensagens")}
+                className="w-full h-11 sm:h-12 rounded-xl bg-white dark:bg-gray-900 border-2 border-primary/30 hover:border-primary text-gray-900 dark:text-white font-bold text-xs sm:text-sm shadow-sm transition-all flex items-center justify-center gap-2.5 active:scale-[0.98]"
+              >
+                <svg className="h-4 w-4 sm:h-5 sm:w-5 shrink-0" viewBox="0 0 24 24" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
+                  <g transform="matrix(1, 0, 0, 1, 0, 0)">
+                    <path d="M21.35,11.1H12v2.7h5.38c-0.24,1.28 -0.96,2.37 -2.04,3.1v2.57h3.3c1.93,-1.78 3.04,-4.4 3.04,-7.49C21.68,11.75 21.56,11.41 21.35,11.1z" fill="#4285F4" />
+                    <path d="M12,20.62c2.43,0 4.47,-0.8 5.96,-2.18l-3.3,-2.57c-0.9,0.61 -2.07,0.98 -3.36,0.98c-2.34,0 -4.33,-1.58 -5.03,-3.72l-3.41,2.64C4.12,18.42 7.77,20.62 12,20.62z" fill="#34A853" />
+                    <path d="M6.97,13.13c-0.18,-0.54 -0.28,-1.11 -0.28,-1.7s0.1,-1.16 0.28,-1.7l-3.41,-2.64C3.07,8.08 2.76,9.51 2.76,11s0.31,2.92 0.8,4.27l3.41,-2.64z" fill="#FBBC05" />
+                    <path d="M12,6.01c1.32,0 2.51,0.45 3.44,1.35l2.58,-2.58C16.46,3.31 14.42,2.5 12,2.5c-4.23,0 -7.88,2.2 -9.44,4.77l3.41,2.64C6.67,7.59 8.66,6.01 12,6.01z" fill="#EA4335" />
+                  </g>
+                </svg>
+                <span>Continuar com o Google</span>
+              </Button>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <Button 
+                  variant="outline"
+                  onClick={() => navigate("/entrar?redirect=/mensagens")}
+                  className="w-full h-10 font-semibold rounded-xl text-xs"
+                >
+                  Fazer Login
+                </Button>
+                <Button 
+                  onClick={() => navigate("/registar?redirect=/mensagens")}
+                  className="w-full h-10 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-xl text-xs shadow-sm"
+                >
+                  Criar Conta
+                </Button>
+              </div>
+
+              <Button 
+                variant="ghost"
+                onClick={() => navigate("/")}
+                className="w-full h-9 font-medium text-xs text-muted-foreground hover:text-foreground mt-2"
+              >
+                Voltar à Página Inicial
+              </Button>
+            </div>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <Header />
-      <section className="container py-4 md:py-6 flex-1 flex flex-col">
-        <div className="flex items-center gap-3 mb-4">
+      <section className="w-full max-w-7xl mx-auto px-0 sm:px-4 py-1 sm:py-6 flex-1 flex flex-col">
+        <div className="px-3 sm:px-0 flex items-center gap-3 mb-2 sm:mb-4">
           <button
             onClick={() => navigate(-1)}
             className="p-2 rounded-xl hover:bg-muted text-muted-foreground hover:text-foreground transition-all active:scale-95 border border-border/40 bg-card shadow-sm flex items-center justify-center shrink-0"
@@ -242,9 +308,9 @@ const Mensagens = () => {
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
-          <h1 className="font-display font-bold text-2xl md:text-3xl">Mensagens</h1>
+          <h1 className="font-display font-bold text-xl sm:text-3xl">Mensagens</h1>
         </div>
-        <div className="flex-1 grid md:grid-cols-[320px_1fr] bg-card rounded-3xl border border-border/40 shadow-card overflow-hidden min-h-[500px] md:min-h-[600px] h-[calc(100vh-220px)] md:h-[650px]">
+        <div className="flex-1 grid md:grid-cols-[320px_1fr] bg-card rounded-none sm:rounded-3xl border-y sm:border border-border/40 shadow-card overflow-hidden h-[calc(100vh-130px)] sm:h-[650px]">
           
           {/* Conversas Sidebar (List) */}
           <aside

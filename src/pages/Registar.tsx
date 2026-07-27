@@ -1,14 +1,17 @@
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { ArrowRight, UserPlus, Loader2 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { ArrowRight, UserPlus, Loader2, Clock } from "lucide-react";
 import { useState } from "react";
+import { useAuth } from "@/context/AuthContext";
 
 const Registar = () => {
-  const { toast } = useToast();
+  const { register, loginWithGoogle } = useAuth();
   const nav = useNavigate();
+  const [searchParams] = useSearchParams();
+  const redirectTarget = searchParams.get("redirect") || "/";
+
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -16,86 +19,25 @@ const Registar = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !email || !password) return;
 
     setIsLoading(true);
-    setTimeout(() => {
-      // Simulate successful registration
-      const mockUser = {
-        name: name,
-        email: email,
-        phone: phone,
-        avatar: name.split(" ").map(n => n[0]).join("").toUpperCase().substring(0, 2)
-      };
-      localStorage.setItem("user", JSON.stringify(mockUser));
-
-      // Save to registered users list for Admin Panel
-      try {
-        const usersList = JSON.parse(localStorage.getItem("aqkianda-registered-users") || "[]");
-        if (!usersList.some((u: { email: string }) => u.email.toLowerCase() === email.toLowerCase())) {
-          usersList.push({
-            id: `user-${Date.now()}`,
-            name: name,
-            email: email,
-            phone: phone || "Não fornecido",
-            registeredAt: new Date().toLocaleDateString("pt-AO"),
-            avatar: mockUser.avatar
-          });
-          localStorage.setItem("aqkianda-registered-users", JSON.stringify(usersList));
-        }
-      } catch (err) {
-        console.error("Error saving user registration:", err);
-      }
-
-      setIsLoading(false);
-
-      toast({
-        title: "Conta criada com sucesso!",
-        description: `Bem-vindo à Aqkianda, ${mockUser.name}!`,
-      });
-      nav("/");
-    }, 1500);
+    await register(name, email, password, phone, redirectTarget);
+    setIsLoading(false);
   };
 
-  const handleGoogleSignup = () => {
+  const handleGoogleLogin = async () => {
     setIsGoogleLoading(true);
-    setTimeout(() => {
-      // Simulate Google Sign-Up success
-      const mockUser = {
-        name: "Elizângelo Manuel",
-        email: "elizangelomanuel@gmail.com",
-        avatar: "EM"
-      };
-      localStorage.setItem("user", JSON.stringify(mockUser));
+    await loginWithGoogle(redirectTarget);
+    setIsGoogleLoading(false);
+  };
 
-      // Save to registered users list for Admin Panel
-      try {
-        const usersList = JSON.parse(localStorage.getItem("aqkianda-registered-users") || "[]");
-        if (!usersList.some((u: { email: string }) => u.email.toLowerCase() === mockUser.email.toLowerCase())) {
-          usersList.push({
-            id: `user-${Date.now()}`,
-            name: mockUser.name,
-            email: mockUser.email,
-            phone: "Não fornecido",
-            registeredAt: new Date().toLocaleDateString("pt-AO"),
-            avatar: mockUser.avatar
-          });
-          localStorage.setItem("aqkianda-registered-users", JSON.stringify(usersList));
-        }
-      } catch (err) {
-        console.error("Error saving Google user registration:", err);
-      }
-
-      setIsGoogleLoading(false);
-
-      toast({
-        title: "Acesso via Google Autorizado!",
-        description: `Registado com sucesso usando a conta elizangelomanuel@gmail.com`,
-      });
-      nav("/");
-    }, 1500);
+  const handleGoogleSignup = async () => {
+    setIsGoogleLoading(true);
+    await loginWithGoogle(redirectTarget);
+    setIsGoogleLoading(false);
   };
 
   return (

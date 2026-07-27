@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Input } from "@/components/ui/input";
@@ -11,9 +11,9 @@ import { useToast } from "@/hooks/use-toast";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { listings } from "@/data/listings";
-import { useEffect } from "react";
 import { useDocumentMetadata } from "@/hooks/useDocumentMetadata";
 import ListingCard from "@/components/ListingCard";
+import { useAuth } from "@/context/AuthContext";
 
 interface PromoCampaign {
   id: string;
@@ -43,6 +43,7 @@ const Publicar = () => {
   const { toast } = useToast();
   const nav = useNavigate();
   const { id } = useParams();
+  const { isAuthenticated, openAuthModal, user: currentUser } = useAuth();
   const isEditing = Boolean(id);
 
   useDocumentMetadata({
@@ -187,6 +188,15 @@ const Publicar = () => {
       return;
     }
 
+    if (!isAuthenticated) {
+      openAuthModal("/publicar");
+      toast({
+        title: "Sessão Necessária 🔐",
+        description: "Inicia sessão ou cria uma conta para publicar o teu anúncio.",
+      });
+      return;
+    }
+
     setIsSubmitting(true);
     await new Promise(resolve => setTimeout(resolve, 1500));
 
@@ -196,8 +206,8 @@ const Publicar = () => {
       : undefined;
 
     try {
-      const storedUserStr = localStorage.getItem("user");
-      const currentUser = storedUserStr ? JSON.parse(storedUserStr) : { name: "João Manuel", phone: "+244 923 000 000" };
+      const sellerName = currentUser?.name || "Anunciante Aqkianda";
+      const sellerPhone = currentUser?.phone || "+244 923 000 000";
       
       const listingId = isEditing && id ? id : "custom-" + Date.now();
 
@@ -214,8 +224,8 @@ const Publicar = () => {
         categoryId: cat,
         description: desc,
         postedAt: "Hoje",
-        seller: currentUser.name || "João Manuel",
-        phone: currentUser.phone || "+244 923 000 000",
+        seller: sellerName,
+        phone: sellerPhone,
         ...(joinPromo && {
           promoPrice: calculatedPromoPrice,
           promoDiscount: selectedDiscount,

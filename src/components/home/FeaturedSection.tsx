@@ -1,9 +1,10 @@
 import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import ListingCard from "@/components/ListingCard";
+import { Listing } from "@/data/listings";
 
 interface FeaturedSectionProps {
-  listings: any[];
+  listings: Listing[];
 }
 
 const FeaturedSection = ({ listings }: FeaturedSectionProps) => {

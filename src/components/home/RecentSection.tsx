@@ -1,7 +1,8 @@
 import ListingCard from "@/components/ListingCard";
+import { Listing } from "@/data/listings";
 
 interface RecentSectionProps {
-  listings: any[];
+  listings: Listing[];
 }
 
 const RecentSection = ({ listings }: RecentSectionProps) => {

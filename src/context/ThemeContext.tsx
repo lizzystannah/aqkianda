@@ -13,7 +13,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [isDark, setIsDark] = useState(() => {
     const saved = localStorage.getItem('aqkianda-theme');
     if (saved) return saved === 'dark';
-    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    return false; // Default to Light Mode on first visit
   });
 
   const [activeTemplate, setActiveTemplateState] = useState(() => {

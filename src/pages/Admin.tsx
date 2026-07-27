@@ -138,8 +138,8 @@ const Admin = () => {
   const [registeredUsers, setRegisteredUsers] = useState<typeof SEED_USERS>([]);
 
   // Slideshow banners & Promo events states
-  const [slides, setSlides] = useState<any[]>([]);
-  const [promoEvents, setPromoEvents] = useState<any[]>([]);
+  const [slides, setSlides] = useState<Array<{ id: string; title: string; subtitle: string; image: string; link: string; listingId?: string; buttonText: string }>>([]);
+  const [promoEvents, setPromoEvents] = useState<Array<{ id: string; title: string; discountText: string; expiresAt: string; categorySlug: string; image: string }>>([]);
 
   // Banners form state
   const [bannerTitle, setBannerTitle] = useState("");
@@ -350,9 +350,9 @@ const Admin = () => {
     }
   };
 
-  // Promote published listing directly to Slideshow Banner using its first image
+  // Promote published listing directly to Slideshow Banner using its image
   const handleAddListingToBanner = (listing: Listing) => {
-    const firstImage = (listing as any).images?.[0] || listing.image;
+    const firstImage = listing.image;
     const targetLink = `/anuncio/${listing.id}/${slugify(listing.title)}`;
     
     const newBanner = {

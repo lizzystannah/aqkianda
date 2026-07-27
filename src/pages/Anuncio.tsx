@@ -14,6 +14,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useFavorites } from "@/context/FavoritesContext";
 import { useToast } from "@/hooks/use-toast";
 import { useRatings } from "@/context/RatingsContext";
+import { useAuth } from "@/context/AuthContext";
 import { useDocumentMetadata } from "@/hooks/useDocumentMetadata";
 
 // Helper to retrieve custom multiple images for the listing gallery based on category to look highly realistic
@@ -91,6 +92,7 @@ const PriceCard = ({
   clicks
 }: PriceCardProps) => {
   const { getSellerRating } = useRatings();
+  const { isAuthenticated, openAuthModal } = useAuth();
   const sellerStats = getSellerRating(listing.seller);
   const formattedCategory = categories.find(c => c.slug === listing.categoryId)?.name || "Geral";
 
@@ -164,6 +166,10 @@ const PriceCard = ({
         <Button 
           className="w-full h-11 rounded bg-primary hover:bg-primary/90 text-white font-bold text-xs sm:text-sm active:scale-95 transition-all shadow-sm"
           onClick={() => {
+            if (!isAuthenticated) {
+              openAuthModal(`/anuncio/${listing.id}`);
+              return;
+            }
             incrementListingClick(listing.id, "general");
             nav("/mensagens", { state: { sellerName: listing.seller, productName: listing.title } });
           }}
@@ -176,6 +182,10 @@ const PriceCard = ({
             variant={showPhone ? "secondary" : "outline"} 
             className="h-10 rounded font-bold text-[11px] sm:text-xs transition-all active:scale-95 text-ellipsis whitespace-nowrap overflow-hidden"
             onClick={() => {
+              if (!isAuthenticated) {
+                openAuthModal(`/anuncio/${listing.id}`);
+                return;
+              }
               if (!showPhone) incrementListingClick(listing.id, "contact");
               setShowPhone(!showPhone);
             }}
@@ -186,7 +196,13 @@ const PriceCard = ({
           <Button 
             variant="outline" 
             className={`h-10 rounded font-bold text-[11px] sm:text-xs transition-all active:scale-95 ${fav ? 'bg-primary/5 border-primary text-primary' : ''}`}
-            onClick={() => toggleFavorite(listing.id)}
+            onClick={() => {
+              if (!isAuthenticated) {
+                openAuthModal(`/anuncio/${listing.id}`);
+                return;
+              }
+              toggleFavorite(listing.id);
+            }}
           >
             <Heart className={`h-3.5 w-3.5 mr-1 ${fav ? 'fill-current' : ''}`} /> {fav ? "Favoritado" : "Favorito"}
           </Button>

@@ -520,8 +520,8 @@ const TemplateAlibabaV4 = () => {
             {/* Footer with original texts kept exactly as requested */}
             <footer className="mt-24 border-t border-border/60 bg-secondary text-secondary-foreground py-14">
                 <div className="container mx-auto px-4">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-10 text-xs sm:text-sm">
-                        <div className="space-y-4 col-span-2 md:col-span-1">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-10 text-xs sm:text-sm">
+                        <div className="space-y-4 md:col-span-1">
                             <div className="flex items-center gap-2 mb-3">
                                 <div className="h-8 w-8 rounded bg-primary text-white flex items-center justify-center font-bold text-sm">
                                     A
@@ -533,31 +533,33 @@ const TemplateAlibabaV4 = () => {
                             </p>
                         </div>
                         
-                        <div>
-                            <h4 className="font-display font-semibold mb-3 text-xs sm:text-sm">Mercado</h4>
-                            <ul className="space-y-2.5 text-xs sm:text-sm text-secondary-foreground/70">
-                                <li><Link to="/explorar" className="hover:text-primary transition-colors">Explorar</Link></li>
-                                <li><Link to="/explorar" className="hover:text-primary transition-colors">Categorias</Link></li>
-                                <li><Link to="/publicar" className="hover:text-primary transition-colors">Publicar</Link></li>
-                            </ul>
-                        </div>
-                        
-                        <div>
-                            <h4 className="font-display font-semibold mb-3 text-xs sm:text-sm">Conta</h4>
-                            <ul className="space-y-2.5 text-xs sm:text-sm text-secondary-foreground/70">
-                                <li><Link to="/entrar" className="hover:text-primary transition-colors">Entrar</Link></li>
-                                <li><Link to="/perfil" className="hover:text-primary transition-colors">Perfil</Link></li>
-                                <li><Link to="/mensagens" className="hover:text-primary transition-colors">Mensagens</Link></li>
-                            </ul>
-                        </div>
-                        
-                        <div>
-                            <h4 className="font-display font-semibold mb-3 text-xs sm:text-sm">Sobre</h4>
-                            <ul className="space-y-2.5 text-xs sm:text-sm text-secondary-foreground/70">
-                                <li className="cursor-pointer hover:text-primary transition-colors">Funcionamento</li>
-                                <li className="cursor-pointer hover:text-primary transition-colors">Segurança</li>
-                                <li className="cursor-pointer hover:text-primary transition-colors">Termos</li>
-                            </ul>
+                        <div className="md:col-span-3 grid grid-cols-3 gap-2 sm:gap-6">
+                            <div>
+                                <h4 className="font-display font-semibold mb-3 text-xs sm:text-sm">Mercado</h4>
+                                <ul className="space-y-2.5 text-xs sm:text-sm text-secondary-foreground/70">
+                                    <li><Link to="/explorar" className="hover:text-primary transition-colors">Explorar</Link></li>
+                                    <li><Link to="/explorar" className="hover:text-primary transition-colors">Categorias</Link></li>
+                                    <li><Link to="/publicar" className="hover:text-primary transition-colors">Publicar</Link></li>
+                                </ul>
+                            </div>
+                            
+                            <div>
+                                <h4 className="font-display font-semibold mb-3 text-xs sm:text-sm">Conta</h4>
+                                <ul className="space-y-2.5 text-xs sm:text-sm text-secondary-foreground/70">
+                                    <li><Link to="/entrar" className="hover:text-primary transition-colors">Entrar</Link></li>
+                                    <li><Link to="/perfil" className="hover:text-primary transition-colors">Perfil</Link></li>
+                                    <li><Link to="/mensagens" className="hover:text-primary transition-colors">Mensagens</Link></li>
+                                </ul>
+                            </div>
+                            
+                            <div>
+                                <h4 className="font-display font-semibold mb-3 text-xs sm:text-sm">Sobre</h4>
+                                <ul className="space-y-2.5 text-xs sm:text-sm text-secondary-foreground/70">
+                                    <li className="cursor-pointer hover:text-primary transition-colors">Funcionamento</li>
+                                    <li className="cursor-pointer hover:text-primary transition-colors">Segurança</li>
+                                    <li className="cursor-pointer hover:text-primary transition-colors">Termos</li>
+                                </ul>
+                            </div>
                         </div>
                     </div>
                     

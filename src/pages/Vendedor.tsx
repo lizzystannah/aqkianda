@@ -1,16 +1,19 @@
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Star, ShieldCheck, MapPin, ArrowLeft, Package, Calendar } from "lucide-react";
+import { Star, ShieldCheck, MapPin, ArrowLeft, Package, Calendar, MessageCircle } from "lucide-react";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ListingCard from "@/components/ListingCard";
+import { Button } from "@/components/ui/button";
 import { listings } from "@/data/listings";
 import { useRatings } from "@/context/RatingsContext";
+import { useAuth } from "@/context/AuthContext";
 
 const Vendedor = () => {
   const { name } = useParams();
   const navigate = useNavigate();
   const { getSellerRating } = useRatings();
+  const { isAuthenticated, openAuthModal } = useAuth();
   const sellerName = decodeURIComponent(name || "");
 
   const sellerListings = listings.filter((l) => l.seller.toLowerCase() === sellerName.toLowerCase());
@@ -102,27 +105,42 @@ const Vendedor = () => {
               </div>
             </div>
 
-            {/* Right side: Seller stats metadata */}
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-xs md:text-sm text-muted-foreground bg-muted/30 p-4 rounded border border-border/20 w-full md:w-auto">
-              <div className="space-y-1">
-                <span className="text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider block">Artigos Ativos</span>
-                <span className="font-sans font-extrabold text-foreground text-base flex items-center gap-1">
-                  <Package className="h-4 w-4 text-primary" /> {sellerListings.length}
-                </span>
-              </div>
-              <div className="w-px h-8 bg-border/40 hidden sm:block" />
-              <div className="space-y-1">
-                <span className="text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider block">Localização</span>
-                <span className="font-bold text-foreground text-xs flex items-center gap-1">
-                  <MapPin className="h-4 w-4 text-primary" /> {locations.join(" · ")}
-                </span>
-              </div>
-              <div className="w-px h-8 bg-border/40 hidden sm:block" />
-              <div className="space-y-1">
-                <span className="text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider block">Membro Desde</span>
-                <span className="font-bold text-foreground text-xs flex items-center gap-1">
-                  <Calendar className="h-4 w-4 text-primary" /> 2026
-                </span>
+            {/* Right side: Seller stats & Send Message Button */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
+              <Button
+                onClick={() => {
+                  if (!isAuthenticated) {
+                    openAuthModal(`/vendedor/${name}`);
+                    return;
+                  }
+                  navigate("/mensagens", { state: { sellerName, productName: sellerListings[0]?.title || "Geral" } });
+                }}
+                className="h-11 bg-primary hover:bg-primary/90 text-white font-bold px-6 rounded-xl shadow-md flex items-center justify-center gap-2"
+              >
+                <MessageCircle className="h-4 w-4" /> Enviar Mensagem
+              </Button>
+
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-xs md:text-sm text-muted-foreground bg-muted/30 p-4 rounded-xl border border-border/20">
+                <div className="space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider block">Artigos Ativos</span>
+                  <span className="font-sans font-extrabold text-foreground text-base flex items-center gap-1">
+                    <Package className="h-4 w-4 text-primary" /> {sellerListings.length}
+                  </span>
+                </div>
+                <div className="w-px h-8 bg-border/40 hidden sm:block" />
+                <div className="space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider block">Localização</span>
+                  <span className="font-bold text-foreground text-xs flex items-center gap-1">
+                    <MapPin className="h-4 w-4 text-primary" /> {locations.join(" · ")}
+                  </span>
+                </div>
+                <div className="w-px h-8 bg-border/40 hidden sm:block" />
+                <div className="space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-muted-foreground/80 tracking-wider block">Membro Desde</span>
+                  <span className="font-bold text-foreground text-xs flex items-center gap-1">
+                    <Calendar className="h-4 w-4 text-primary" /> 2026
+                  </span>
+                </div>
               </div>
             </div>
           </div>

@@ -1,9 +1,10 @@
+import React from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Smartphone, Car, Home, Shirt, Sofa, Dumbbell, Briefcase, Wrench } from "lucide-react";
 import { categories } from "@/data/listings";
 
-const iconMap: Record<string, any> = { Smartphone, Car, Home, Shirt, Sofa, Dumbbell, Briefcase, Wrench };
+const iconMap: Record<string, React.ComponentType<{ className?: string }>> = { Smartphone, Car, Home, Shirt, Sofa, Dumbbell, Briefcase, Wrench };
 
 const CategorySection = () => {
   return (

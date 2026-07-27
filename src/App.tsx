@@ -32,8 +32,12 @@ import Termos from "./pages/Termos.tsx";
 import { FavoritesProvider } from "./context/FavoritesContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { RatingsProvider } from "./context/RatingsContext";
+import { AuthProvider } from "./context/AuthContext";
+import AuthModal from "./components/AuthModal";
+import ProtectedRoute from "./components/ProtectedRoute";
 import ScrollToTop from "./components/ScrollToTop";
 import MobileBottomNav from "./components/MobileBottomNav";
+import GracePeriodBanner from "./components/GracePeriodBanner";
 
 const queryClient = new QueryClient();
 
@@ -41,49 +45,52 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <ThemeProvider>
       <TooltipProvider>
-        <FavoritesProvider>
-          <RatingsProvider>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter>
-              <ScrollToTop />
-              <div className="pb-12 lg:pb-0 min-h-screen flex flex-col">
-                <Routes>
-                  <Route path="/" element={<Index />} />
-                  <Route path="/explorar" element={<Explorar />} />
-                  <Route path="/anuncio/:id" element={<Anuncio />} />
-                  <Route path="/anuncio/:id/:slug" element={<Anuncio />} />
-                  <Route path="/publicar" element={<Publicar />} />
-                  <Route path="/publicar/:id" element={<Publicar />} />
-                  <Route path="/mensagens" element={<Mensagens />} />
-                  <Route path="/favoritos" element={<Favoritos />} />
-                  <Route path="/perfil" element={<Perfil />} />
-                  <Route path="/perfil/:name" element={<Perfil />} />
-                  <Route path="/entrar" element={<Entrar />} />
-                  <Route path="/registar" element={<Registar />} />
-                  <Route path="/template/grid" element={<TemplateGrid />} />
-                  <Route path="/template/magazine" element={<TemplateMagazine />} />
-                  <Route path="/template/bazaar" element={<TemplateBazaar />} />
-                  <Route path="/template/modern" element={<TemplateModern />} />
-                  <Route path="/template/minimal" element={<TemplateMinimal />} />
-                  <Route path="/template/alibaba" element={<TemplateAlibaba />} />
-                  <Route path="/template/alibaba-v2" element={<TemplateAlibabaV2 />} />
-                  <Route path="/template/alibaba-v3" element={<TemplateAlibabaV3 />} />
-                  <Route path="/template/alibaba-v4" element={<TemplateAlibabaV4 />} />
-                  <Route path="/template/aliexpress" element={<TemplateAliExpress />} />
-                  <Route path="/template/clean" element={<TemplateClean />} />
-                  <Route path="/template/premium" element={<TemplatePremium />} />
-                  <Route path="/template/vibrant" element={<TemplateVibrant />} />
-                  <Route path="/vendedor/:name" element={<Vendedor />} />
-                  <Route path="/admin" element={<Admin />} />
-                  <Route path="/termos" element={<Termos />} />
-                  <Route path="*" element={<NotFound />} />
-                </Routes>
-              </div>
-              <MobileBottomNav />
-            </BrowserRouter>
-          </RatingsProvider>
-        </FavoritesProvider>
+        <AuthProvider>
+          <FavoritesProvider>
+            <RatingsProvider>
+              <BrowserRouter>
+                <Toaster />
+                <Sonner />
+                <AuthModal />
+                <ScrollToTop />
+                <div className="pb-12 lg:pb-0 min-h-screen flex flex-col">
+                  <Routes>
+                    <Route path="/" element={<Index />} />
+                    <Route path="/explorar" element={<Explorar />} />
+                    <Route path="/anuncio/:id" element={<Anuncio />} />
+                    <Route path="/anuncio/:id/:slug" element={<Anuncio />} />
+                    <Route path="/publicar" element={<Publicar />} />
+                    <Route path="/publicar/:id" element={<Publicar />} />
+                    <Route path="/mensagens" element={<Mensagens />} />
+                    <Route path="/favoritos" element={<Favoritos />} />
+                    <Route path="/perfil" element={<Perfil />} />
+                    <Route path="/perfil/:name" element={<Perfil />} />
+                    <Route path="/entrar" element={<Entrar />} />
+                    <Route path="/registar" element={<Registar />} />
+                    <Route path="/template/grid" element={<TemplateGrid />} />
+                    <Route path="/template/magazine" element={<TemplateMagazine />} />
+                    <Route path="/template/bazaar" element={<TemplateBazaar />} />
+                    <Route path="/template/modern" element={<TemplateModern />} />
+                    <Route path="/template/minimal" element={<TemplateMinimal />} />
+                    <Route path="/template/alibaba" element={<TemplateAlibaba />} />
+                    <Route path="/template/alibaba-v2" element={<TemplateAlibabaV2 />} />
+                    <Route path="/template/alibaba-v3" element={<TemplateAlibabaV3 />} />
+                    <Route path="/template/alibaba-v4" element={<TemplateAlibabaV4 />} />
+                    <Route path="/template/aliexpress" element={<TemplateAliExpress />} />
+                    <Route path="/template/clean" element={<TemplateClean />} />
+                    <Route path="/template/premium" element={<TemplatePremium />} />
+                    <Route path="/template/vibrant" element={<TemplateVibrant />} />
+                    <Route path="/vendedor/:name" element={<Vendedor />} />
+                    <Route path="/admin" element={<Admin />} />
+                    <Route path="/termos" element={<Termos />} />
+                    <Route path="*" element={<NotFound />} />
+                  </Routes>
+                </div>
+                <MobileBottomNav />
+              </BrowserRouter>
+            </RatingsProvider>
+          </FavoritesProvider>
+        </AuthProvider>
       </TooltipProvider>
     </ThemeProvider>
   </QueryClientProvider>
