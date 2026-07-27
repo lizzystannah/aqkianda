@@ -58,7 +58,7 @@ async function startServer() {
     // Production mode: Serve static frontend build
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("/*", (req, res) => {
+    app.get("/{*path}", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
