@@ -1,0 +1,147 @@
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Aqkianda Design System — Vibrant Lusophone Marketplace
+   All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* Base surfaces — warm off-white */
+    --background: 35 30% 97%;
+    --foreground: 220 25% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 25% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 25% 12%;
+
+    /* Primary — classic Aqkianda red (energy, Angola) */
+    --primary: 0 84% 51%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 0 85% 60%;
+
+    /* Secondary — deep charcoal (trust) */
+    --secondary: 220 25% 14%;
+    --secondary-foreground: 35 30% 97%;
+
+    /* Accent — fresh mint (new / available) */
+    --accent: 158 64% 48%;
+    --accent-foreground: 220 25% 12%;
+
+    --muted: 35 20% 93%;
+    --muted-foreground: 220 10% 42%;
+
+    --destructive: 0 84% 58%;
+    --destructive-foreground: 35 30% 98%;
+
+    --border: 30 15% 88%;
+    --input: 30 15% 88%;
+    --ring: 0 84% 51%;
+
+    --radius: 1rem;
+
+    /* Brand-specific */
+    --gold: 42 92% 56%;
+    --info: 215 90% 58%;
+
+    /* Gradients */
+    --gradient-hero: linear-gradient(135deg, hsl(0 84% 51%) 0%, hsl(355 85% 60%) 50%, hsl(10 90% 65%) 100%);
+    --gradient-dark: linear-gradient(135deg, hsl(220 28% 10%) 0%, hsl(220 25% 18%) 100%);
+    --gradient-mint: linear-gradient(135deg, hsl(158 64% 48%) 0%, hsl(168 70% 52%) 100%);
+    --gradient-radial: radial-gradient(circle at top right, hsl(0 84% 51% / 0.18), transparent 60%);
+
+    /* Shadows — warm tinted */
+    --shadow-sm: 0 1px 2px 0 hsl(220 25% 12% / 0.05);
+    --shadow-card: 0 8px 24px -8px hsl(0 50% 30% / 0.12);
+    --shadow-elevated: 0 20px 50px -20px hsl(0 80% 40% / 0.25);
+    --shadow-glow: 0 0 40px hsl(0 84% 51% / 0.35);
+
+    /* Transitions */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-spring: all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    --background: 220 28% 8%;
+    --foreground: 35 30% 96%;
+    --card: 220 25% 12%;
+    --card-foreground: 35 30% 96%;
+    --popover: 220 25% 12%;
+    --popover-foreground: 35 30% 96%;
+    --primary: 0 84% 58%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 20% 18%;
+    --secondary-foreground: 35 30% 96%;
+    --accent: 158 64% 52%;
+    --accent-foreground: 220 28% 8%;
+    --muted: 220 20% 16%;
+    --muted-foreground: 220 10% 65%;
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 35 30% 96%;
+    --border: 220 20% 20%;
+    --input: 220 20% 20%;
+    --ring: 0 84% 58%;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  html { font-family: 'Inter', system-ui, sans-serif; }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "ss01", "cv11";
+  }
+  h1, h2, h3, h4, h5 { font-family: 'Sora', sans-serif; @apply tracking-tight; }
+}
+
+@layer utilities {
+  .font-display { font-family: 'Sora', sans-serif; }
+  .gradient-hero { background: var(--gradient-hero); }
+  .gradient-dark { background: var(--gradient-dark); }
+  .gradient-mint { background: var(--gradient-mint); }
+  .gradient-radial { background: var(--gradient-radial); }
+  .shadow-card { box-shadow: var(--shadow-card); }
+  .shadow-elevated { box-shadow: var(--shadow-elevated); }
+  .shadow-glow { box-shadow: var(--shadow-glow); }
+  .transition-smooth { transition: var(--transition-smooth); }
+  .transition-spring { transition: var(--transition-spring); }
+  .text-gold { color: hsl(var(--gold)); }
+  .bg-gold { background-color: hsl(var(--gold)); }
+}
+
+/* Smoky wave animations */
+@keyframes wave-float {
+  0%, 100% { transform: translateY(0px) translateX(0px); }
+  25% { transform: translateY(-8px) translateX(10px); }
+  50% { transform: translateY(4px) translateX(-5px); }
+  75% { transform: translateY(-4px) translateX(8px); }
+}
+
+@keyframes wave-float-reverse {
+  0%, 100% { transform: translateY(0px) translateX(0px); }
+  25% { transform: translateY(6px) translateX(-8px); }
+  50% { transform: translateY(-6px) translateX(12px); }
+  75% { transform: translateY(3px) translateX(-6px); }
+}
+
+.animate-wave-float {
+  animation: wave-float 6s ease-in-out infinite;
+}
+
+.animate-wave-float-reverse {
+  animation: wave-float-reverse 8s ease-in-out infinite;
+}
