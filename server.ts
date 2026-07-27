@@ -2,11 +2,22 @@ import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
+import { 
+  initializeDatabase, 
+  getTrafficHistory, 
+  incrementVisit, 
+  incrementShare, 
+  incrementSignup, 
+  isDbConnected 
+} from "./server/db.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function startServer() {
+  // Initialize MySQL database connection or fallback gracefully
+  await initializeDatabase();
+
   const app = express();
   const PORT = process.env.PORT || 3000;
 
@@ -30,8 +41,53 @@ async function startServer() {
       status: "online",
       app: "Aqkianda Marketplace",
       timestamp: new Date().toISOString(),
-      environment: process.env.NODE_ENV || "development"
+      environment: process.env.NODE_ENV || "development",
+      mysql: isDbConnected ? "connected" : "fallback_mode"
     });
+  });
+
+  // Real Traffic & Analytics API Endpoints connected to MySQL
+  app.get("/api/analytics/traffic", async (req, res) => {
+    try {
+      const history = await getTrafficHistory();
+      res.json(history);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro desconhecido";
+      res.status(500).json({ error: "Erro ao obter tráfego do servidor", message });
+    }
+  });
+
+  app.post("/api/analytics/visit", async (req, res) => {
+    try {
+      const { isRegistered, source } = req.body;
+      const validSources = ["direct", "search", "share", "whatsapp"];
+      const finalSource = validSources.includes(source) ? source : "direct";
+      await incrementVisit(!!isRegistered, finalSource);
+      res.json({ success: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro desconhecido";
+      res.status(500).json({ error: "Erro ao registar visita", message });
+    }
+  });
+
+  app.post("/api/analytics/share", async (req, res) => {
+    try {
+      await incrementShare();
+      res.json({ success: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro desconhecido";
+      res.status(500).json({ error: "Erro ao registar partilha", message });
+    }
+  });
+
+  app.post("/api/analytics/signup", async (req, res) => {
+    try {
+      await incrementSignup();
+      res.json({ success: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro desconhecido";
+      res.status(500).json({ error: "Erro ao registar inscrição", message });
+    }
   });
 
   app.get("/api/categories", (req, res) => {

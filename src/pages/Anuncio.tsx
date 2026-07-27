@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { listings, formatPrice, Listing, categories, slugify } from "@/data/listings";
-import { incrementListingViews, incrementListingClick, getListingStats } from "@/utils/analytics";
+import { incrementListingViews, incrementListingClick, getListingStats, recordPlatformShare } from "@/utils/analytics";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
@@ -357,14 +357,14 @@ const Anuncio = () => {
 
     // Increment real views and get current view stats
     try {
-      incrementListingViews(id);
+      incrementListingViews(id, isAuthenticated);
       const stats = getListingStats(id);
       setClicks(stats.views);
       window.dispatchEvent(new Event("storage"));
     } catch (e) {
       console.error("Error updating views:", e);
     }
-  }, [id]);
+  }, [id, isAuthenticated]);
 
   // Effect for slug validation/redirection
   useEffect(() => {
@@ -403,6 +403,11 @@ const Anuncio = () => {
 
   const handleShare = async () => {
     try {
+      // Record global platform analytics share event
+      recordPlatformShare();
+      // Record listing specific analytics share click
+      incrementListingClick(listing.id, "share");
+
       if (navigator.share) {
         await navigator.share({
           title: listing.title,

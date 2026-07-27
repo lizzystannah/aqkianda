@@ -161,10 +161,13 @@ CREATE TABLE IF NOT EXISTS `listing_analytics` (
   `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
   `listing_id` VARCHAR(64) NOT NULL,
   `views_count` INT NOT NULL DEFAULT 0,
+  `views_new` INT NOT NULL DEFAULT 0,
+  `views_registered` INT NOT NULL DEFAULT 0,
   `clicks_count` INT NOT NULL DEFAULT 0,
   `contact_clicks` INT NOT NULL DEFAULT 0,
   `whatsapp_clicks` INT NOT NULL DEFAULT 0,
   `share_clicks` INT NOT NULL DEFAULT 0,
+  `rating` DECIMAL(3,2) NOT NULL DEFAULT 0.00,
   `last_activity_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY `unique_listing_analytics` (`listing_id`),
   FOREIGN KEY (`listing_id`) REFERENCES `listings`(`id`) ON DELETE CASCADE
@@ -196,3 +199,23 @@ INSERT INTO `banners` (`id`, `title`, `subtitle`, `image_url`, `link_url`, `butt
 ('b2', 'Campanha Cacimbo Tech', 'Smartphones, Laptops e Acessórios com até 30% de desconto real.', 'https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=1920&q=80', '/explorar?cat=eletronica', 'Ver Tecnologia', 1),
 ('b3', 'Automóveis & Imóveis', 'Encontre os melhores carros e casas de Luanda às melhores condições.', 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=1920&q=80', '/explorar?cat=viaturas', 'Ver Imóveis', 1)
 ON DUPLICATE KEY UPDATE `is_active` = 1;
+
+-- -------------------------------------------------------------
+-- 11. PLATFORM TRAFFIC ANALYTICS TABLE (Métricas de Crescimento e Tráfego Geral)
+-- -------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `platform_traffic_analytics` (
+  `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `traffic_date` DATE NOT NULL UNIQUE,
+  `views_total` INT NOT NULL DEFAULT 0,
+  `views_new` INT NOT NULL DEFAULT 0,
+  `views_registered` INT NOT NULL DEFAULT 0,
+  `shares_count` INT NOT NULL DEFAULT 0,
+  `signups_count` INT NOT NULL DEFAULT 0,
+  `ref_direct` INT NOT NULL DEFAULT 0,
+  `ref_search` INT NOT NULL DEFAULT 0,
+  `ref_share_link` INT NOT NULL DEFAULT 0,
+  `ref_whatsapp` INT NOT NULL DEFAULT 0,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

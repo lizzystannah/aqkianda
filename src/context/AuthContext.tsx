@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
+import { recordPlatformSignup } from "@/utils/analytics";
 
 export interface User {
   id?: string;
@@ -92,6 +93,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         try {
           const usersList = JSON.parse(localStorage.getItem("aqkianda-registered-users") || "[]");
           if (!usersList.some((u: { email: string }) => u.email.toLowerCase() === googleUser.email.toLowerCase())) {
+            recordPlatformSignup();
             usersList.push({
               id: googleUser.id,
               name: googleUser.name,
@@ -171,6 +173,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const usersList = JSON.parse(localStorage.getItem("aqkianda-registered-users") || "[]");
       if (!usersList.some((u: { email: string }) => u.email.toLowerCase() === email.toLowerCase())) {
+        recordPlatformSignup();
         usersList.push({
           id: mockUser.id,
           name: name,

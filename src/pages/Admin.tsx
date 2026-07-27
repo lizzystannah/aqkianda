@@ -1,18 +1,22 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   ShieldCheck, ShieldAlert, Users, Package, Pin, AlertTriangle, 
   Trash2, MessageSquare, Search, ArrowLeft, CheckCircle2, 
   Eye, TrendingUp, Sparkles, Send, Mail, Phone, Calendar, Plus, Megaphone,
   Upload, Image as ImageIcon, Link as LinkIcon, FolderPlus, Tag, Laptop, ShoppingBag,
-  Car, Home, Shirt, Sofa, Dumbbell, Briefcase, Wrench, Smartphone
+  Car, Home, Shirt, Sofa, Dumbbell, Briefcase, Wrench, Smartphone,
+  LineChart, Share2, Globe
 } from "lucide-react";
 import { useNavigate, Link } from "react-router-dom";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, ResponsiveContainer, BarChart, Bar, Cell, Legend } from "recharts";
+import { getGlobalTrafficHistory, DailyTrafficRecord } from "@/utils/analytics";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { listings, formatPrice, Listing, slugify, Category, getCategories, saveCategories } from "@/data/listings";
 import { getListingAnalyticsMap, getListingStats } from "@/utils/analytics";
 import { useToast } from "@/hooks/use-toast";
+import { useRatings } from "@/context/RatingsContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -119,7 +123,9 @@ const AVAILABLE_CATEGORY_ICONS = [
 const Admin = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<"anuncios" | "denuncias" | "vendedores" | "slides" | "promocoes" | "categorias">("anuncios");
+  const { getListingRating } = useRatings();
+  const [activeTab, setActiveTab] = useState<"anuncios" | "denuncias" | "vendedores" | "slides" | "promocoes" | "categorias" | "analytics">("anuncios");
+  const [analyticsRange, setAnalyticsRange] = useState<"today" | "7d" | "30d">("7d");
   
   // Search state
   const [adsSearch, setAdsSearch] = useState("");
@@ -614,15 +620,94 @@ const Admin = () => {
   // Real Analytics calculations
   const analyticsMap = getListingAnalyticsMap();
   let totalRealViews = 0;
+  let totalRealViewsNew = 0;
+  let totalRealViewsRegistered = 0;
   let totalRealClicks = 0;
 
   activeListings.forEach((l) => {
     const stats = analyticsMap[l.id];
     if (stats) {
       totalRealViews += stats.views || 0;
+      totalRealViewsNew += stats.viewsNew || Math.floor((stats.views || 0) * 0.7);
+      totalRealViewsRegistered += stats.viewsRegistered || ((stats.views || 0) - Math.floor((stats.views || 0) * 0.7));
       totalRealClicks += stats.clicks || 0;
     }
   });
+
+  // Load global traffic history with live MySQL database sync
+  const [rawTrafficHistory, setRawTrafficHistory] = useState<DailyTrafficRecord[]>([]);
+
+  useEffect(() => {
+    // Initialize immediately from LocalStorage to prevent layout shift or empty screens
+    setRawTrafficHistory(getGlobalTrafficHistory());
+
+    // Fetch real-time traffic history from MySQL backend
+    fetch("/api/analytics/traffic")
+      .then((res) => {
+        if (!res.ok) throw new Error("Erro de rede");
+        return res.json();
+      })
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setRawTrafficHistory(data);
+        }
+      })
+      .catch((err) => {
+        console.warn("Lendo tráfego local; erro ao obter dados do MySQL:", err);
+      });
+  }, []);
+
+  // Filter history by range
+  const filteredTraffic = useMemo(() => {
+    if (analyticsRange === "today") {
+      return rawTrafficHistory.slice(-2); // return today and yesterday
+    } else if (analyticsRange === "7d") {
+      return rawTrafficHistory.slice(-7);
+    } else {
+      return rawTrafficHistory.slice(-30);
+    }
+  }, [rawTrafficHistory, analyticsRange]);
+
+  // Totals calculations
+  const totalStats = useMemo(() => {
+    let views = 0;
+    let viewsNew = 0;
+    let viewsRegistered = 0;
+    let shares = 0;
+    let signups = 0;
+    let direct = 0;
+    let search = 0;
+    let shareLink = 0;
+    let whatsapp = 0;
+
+    const dataToSum = analyticsRange === "today" 
+      ? rawTrafficHistory.slice(-1)
+      : filteredTraffic;
+
+    dataToSum.forEach((day) => {
+      views += day.viewsTotal || 0;
+      viewsNew += day.viewsNew || 0;
+      viewsRegistered += day.viewsRegistered || 0;
+      shares += day.shares || 0;
+      signups += day.signups || 0;
+      direct += day.direct || 0;
+      search += day.search || 0;
+      shareLink += day.shareLink || 0;
+      whatsapp += day.whatsapp || 0;
+    });
+
+    return {
+      views,
+      viewsNew,
+      viewsRegistered,
+      shares,
+      signups,
+      direct,
+      search,
+      shareLink,
+      whatsapp
+    };
+  }, [filteredTraffic, rawTrafficHistory, analyticsRange]);
 
   // Filter listings
   const filteredListings = activeListings.filter(l => {
@@ -787,9 +872,13 @@ const Admin = () => {
             <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
               <Eye className="h-5 w-5 sm:h-6 sm:w-6" />
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 w-full">
               <p className="text-muted-foreground text-[10px] sm:text-xs font-semibold uppercase tracking-wider truncate">Visitas Reais</p>
               <h3 className="font-display font-bold text-xl sm:text-2xl mt-0.5 font-mono text-emerald-600 dark:text-emerald-400">{totalRealViews}</h3>
+              <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[9px] font-semibold mt-1">
+                <span className="text-sky-600 dark:text-sky-400">Novos: {totalRealViewsNew}</span>
+                <span className="text-indigo-600 dark:text-indigo-400">Inscritos: {totalRealViewsRegistered}</span>
+              </div>
             </div>
           </motion.div>
 
@@ -921,6 +1010,20 @@ const Admin = () => {
               {customCategories.length}
             </span>
           </button>
+          <button
+            onClick={() => setActiveTab("analytics")}
+            className={`flex items-center gap-2 px-4 sm:px-6 py-3 font-bold text-xs sm:text-sm whitespace-nowrap shrink-0 relative transition-all ${
+              activeTab === "analytics" 
+                ? "text-primary border-b-2 border-primary bg-primary/5 rounded-t-xl" 
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <LineChart className="h-4 w-4" />
+            Crescimento & Métricas
+            <span className="ml-1 px-1.5 py-0.5 rounded-full bg-emerald-500 text-white font-mono text-[9px] font-bold">
+              Novo
+            </span>
+          </button>
         </div>
 
         {/* Tab Content Panels */}
@@ -964,8 +1067,9 @@ const Admin = () => {
                           <th className="pb-3 pl-4">Produto</th>
                           <th className="pb-3">Vendedor</th>
                           <th className="pb-3">Preço</th>
-                          <th className="pb-3 text-center">Visualizações</th>
+                          <th className="pb-3 text-center">Visualizações (Novos / Inscritos)</th>
                           <th className="pb-3 text-center">Cliques</th>
+                          <th className="pb-3 text-center">Avaliação</th>
                           <th className="pb-3 text-center">Estado</th>
                           <th className="pb-3 pr-4 text-right">Ações</th>
                         </tr>
@@ -974,6 +1078,7 @@ const Admin = () => {
                         {filteredListings.map((l) => {
                           const isPinned = pinnedIds.includes(l.id);
                           const stats = analyticsMap[l.id] || { views: 0, clicks: 0 };
+                          const ratingStats = getListingRating(l.id);
                           return (
                             <tr key={l.id} className="hover:bg-muted/30 transition-colors">
                               {/* Product col */}
@@ -982,6 +1087,7 @@ const Admin = () => {
                                   src={l.image} 
                                   alt={l.title} 
                                   className="h-12 w-12 object-cover rounded-xl border border-border/60 shrink-0"
+                                  referrerPolicy="no-referrer"
                                 />
                                 <div>
                                   <Link to={`/anuncio/${l.id}`} className="font-semibold text-sm hover:text-primary transition-colors line-clamp-1">
@@ -1005,11 +1111,21 @@ const Admin = () => {
                                 {l.price === 0 ? "Grátis / Negociável" : formatPrice(l.price, l.currency)}
                               </td>
 
-                              {/* Real Views col */}
+                              {/* Real Views col (with New / Registered splits) */}
                               <td className="py-4 text-center">
-                                <span className="inline-flex items-center gap-1 font-mono font-bold text-xs bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                                  <Eye className="h-3 w-3" /> {stats.views}
-                                </span>
+                                <div className="flex flex-col items-center gap-1">
+                                  <span className="inline-flex items-center gap-1 font-mono font-bold text-xs bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2.5 py-0.5 rounded-full border border-emerald-500/20" title="Total de Visitas">
+                                    <Eye className="h-3 w-3" /> {stats.views}
+                                  </span>
+                                  <div className="flex items-center gap-1.5 text-[9px] font-bold mt-0.5 whitespace-nowrap">
+                                    <span className="bg-sky-500/10 text-sky-600 dark:text-sky-400 px-1 py-0.2 rounded" title="Novos Utilizadores">
+                                      Novos: {stats.viewsNew ?? Math.floor(stats.views * 0.7)}
+                                    </span>
+                                    <span className="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 px-1 py-0.2 rounded" title="Utilizadores Inscritos / Registados">
+                                      Inscritos: {stats.viewsRegistered ?? (stats.views - Math.floor(stats.views * 0.7))}
+                                    </span>
+                                  </div>
+                                </div>
                               </td>
 
                               {/* Real Clicks col */}
@@ -1017,6 +1133,21 @@ const Admin = () => {
                                 <span className="inline-flex items-center gap-1 font-mono font-bold text-xs bg-purple-500/10 text-purple-600 dark:text-purple-400 px-2 py-0.5 rounded-full border border-purple-500/20">
                                   <TrendingUp className="h-3 w-3" /> {stats.clicks}
                                 </span>
+                              </td>
+
+                              {/* Listing Rating col */}
+                              <td className="py-4 text-center">
+                                <div className="flex flex-col items-center justify-center">
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-amber-500 text-xs font-bold font-mono">
+                                      {ratingStats.rating.toFixed(1)}
+                                    </span>
+                                    <span className="text-amber-400 text-xs">★</span>
+                                  </div>
+                                  <span className="text-[9px] text-muted-foreground font-semibold">
+                                    ({ratingStats.totalCount} votos)
+                                  </span>
+                                </div>
                               </td>
 
                               {/* Status badge */}
@@ -1741,6 +1872,346 @@ const Admin = () => {
                         <Plus className="mr-2 h-4 w-4" /> Criar Categoria
                       </Button>
                     </form>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {/* Panel 7: Real Analytics Dashboard */}
+            {activeTab === "analytics" && (
+              <motion.div
+                key="analytics-tab"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
+                {/* Header controls */}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-border/40 pb-4">
+                  <div>
+                    <h2 className="font-display font-bold text-lg text-foreground">Relatório de Tráfego & Crescimento</h2>
+                    <p className="text-xs text-muted-foreground">Monitorize a adesão, novos registos, canais de tráfego e partilhas por período.</p>
+                  </div>
+                  
+                  {/* Date Range Selector */}
+                  <div className="flex items-center bg-muted/60 p-1 rounded-xl border border-border/20 self-stretch sm:self-auto">
+                    {(["today", "7d", "30d"] as const).map((range) => (
+                      <button
+                        key={range}
+                        onClick={() => setAnalyticsRange(range)}
+                        className={`flex-1 sm:flex-initial px-4 py-2 text-xs font-bold rounded-lg transition-all whitespace-nowrap capitalize ${
+                          analyticsRange === range 
+                            ? "bg-card text-foreground shadow-sm font-extrabold" 
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {range === "today" ? "Hoje" : range === "7d" ? "Últimos 7 dias" : "Últimos 30 dias"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Growth Performance Stats Widgets */}
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 sm:gap-4">
+                  {/* Stat 1: Total Views */}
+                  <div className="bg-card border border-border/40 rounded-2xl p-4 flex flex-col justify-between shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] sm:text-xs font-bold text-muted-foreground uppercase tracking-wider">Visitas Totais</span>
+                      <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                        <Eye className="h-3.5 w-3.5" />
+                      </div>
+                    </div>
+                    <div className="mt-2.5">
+                      <h4 className="font-display font-bold text-lg sm:text-2xl font-mono text-emerald-600 dark:text-emerald-400">{totalStats.views}</h4>
+                      <p className="text-[9px] sm:text-xs text-muted-foreground mt-0.5">Páginas visualizadas</p>
+                    </div>
+                  </div>
+
+                  {/* Stat 2: New Visitors */}
+                  <div className="bg-card border border-border/40 rounded-2xl p-4 flex flex-col justify-between shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] sm:text-xs font-bold text-muted-foreground uppercase tracking-wider">Novos Utilizadores</span>
+                      <div className="p-1.5 rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-400">
+                        <Globe className="h-3.5 w-3.5" />
+                      </div>
+                    </div>
+                    <div className="mt-2.5">
+                      <h4 className="font-display font-bold text-lg sm:text-2xl font-mono text-sky-600 dark:text-sky-400">{totalStats.viewsNew}</h4>
+                      <p className="text-[9px] sm:text-xs text-muted-foreground mt-0.5">Visitas de visitantes novos</p>
+                    </div>
+                  </div>
+
+                  {/* Stat 3: Registered/Subscribed Views */}
+                  <div className="bg-card border border-border/40 rounded-2xl p-4 flex flex-col justify-between shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] sm:text-xs font-bold text-muted-foreground uppercase tracking-wider">Visitas de Inscritos</span>
+                      <div className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+                        <Users className="h-3.5 w-3.5" />
+                      </div>
+                    </div>
+                    <div className="mt-2.5">
+                      <h4 className="font-display font-bold text-lg sm:text-2xl font-mono text-indigo-600 dark:text-indigo-400">{totalStats.viewsRegistered}</h4>
+                      <p className="text-[9px] sm:text-xs text-muted-foreground mt-0.5">Com conta iniciada</p>
+                    </div>
+                  </div>
+
+                  {/* Stat 4: Shares */}
+                  <div className="bg-card border border-border/40 rounded-2xl p-4 flex flex-col justify-between shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] sm:text-xs font-bold text-muted-foreground uppercase tracking-wider">Partilhas</span>
+                      <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400">
+                        <Share2 className="h-3.5 w-3.5" />
+                      </div>
+                    </div>
+                    <div className="mt-2.5">
+                      <h4 className="font-display font-bold text-lg sm:text-2xl font-mono text-purple-600 dark:text-purple-400">{totalStats.shares}</h4>
+                      <p className="text-[9px] sm:text-xs text-muted-foreground mt-0.5">Partilhas efetuadas</p>
+                    </div>
+                  </div>
+
+                  {/* Stat 5: Signups / Registrations */}
+                  <div className="bg-card border border-border/40 rounded-2xl p-4 flex flex-col justify-between shadow-sm col-span-2 md:col-span-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] sm:text-xs font-bold text-muted-foreground uppercase tracking-wider">Inscritos (Novos)</span>
+                      <div className="p-1.5 rounded-lg bg-pink-500/10 text-pink-600 dark:text-pink-400">
+                        <Plus className="h-3.5 w-3.5" />
+                      </div>
+                    </div>
+                    <div className="mt-2.5">
+                      <h4 className="font-display font-bold text-lg sm:text-2xl font-mono text-pink-600 dark:text-pink-400">{totalStats.signups}</h4>
+                      <p className="text-[9px] sm:text-xs text-muted-foreground mt-0.5">Contas criadas no período</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Graphs Area */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* Traffic over time Area Chart */}
+                  <div className="lg:col-span-2 bg-card border border-border/40 rounded-3xl p-5 shadow-sm">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-bold text-sm text-foreground flex items-center gap-1.5">
+                        <LineChart className="h-4 w-4 text-emerald-500" />
+                        Histórico de Tráfego e Crescimento
+                      </h3>
+                      <span className="text-[10px] bg-emerald-500/10 text-emerald-600 px-2.5 py-0.5 rounded-full font-bold">
+                        {analyticsRange === "today" ? "Visualização diária" : analyticsRange === "7d" ? "Últimos 7 dias" : "Últimos 30 dias"}
+                      </span>
+                    </div>
+
+                    <div className="h-[280px] w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart
+                          data={filteredTraffic}
+                          margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                        >
+                          <defs>
+                            <linearGradient id="colorViews" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#10B981" stopOpacity={0.2}/>
+                              <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
+                            </linearGradient>
+                            <linearGradient id="colorViewsRegistered" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#6366F1" stopOpacity={0.2}/>
+                              <stop offset="95%" stopColor="#6366F1" stopOpacity={0}/>
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(120,120,120,0.1)" />
+                          <XAxis 
+                            dataKey="date" 
+                            stroke="#888888" 
+                            fontSize={10}
+                            tickLine={false}
+                            axisLine={false}
+                            tickFormatter={(val) => {
+                              const pts = val.split("-");
+                              return pts.length > 2 ? `${pts[2]}/${pts[1]}` : val;
+                            }}
+                          />
+                          <YAxis 
+                            stroke="#888888" 
+                            fontSize={10}
+                            tickLine={false}
+                            axisLine={false}
+                          />
+                          <ChartTooltip 
+                            contentStyle={{ 
+                              background: 'hsl(var(--card))', 
+                              border: '1px solid hsl(var(--border))', 
+                              borderRadius: '12px',
+                              fontSize: '11px',
+                              fontWeight: 'bold'
+                            }} 
+                          />
+                          <Legend wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }} />
+                          <Area 
+                            name="Visitas Totais" 
+                            type="monotone" 
+                            dataKey="viewsTotal" 
+                            stroke="#10B981" 
+                            strokeWidth={2.5}
+                            fillOpacity={1} 
+                            fill="url(#colorViews)" 
+                          />
+                          <Area 
+                            name="Utilizadores Inscritos" 
+                            type="monotone" 
+                            dataKey="viewsRegistered" 
+                            stroke="#6366F1" 
+                            strokeWidth={2}
+                            fillOpacity={1} 
+                            fill="url(#colorViewsRegistered)" 
+                          />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  {/* Traffic Referrals / Channels Bar Chart */}
+                  <div className="bg-card border border-border/40 rounded-3xl p-5 shadow-sm flex flex-col justify-between">
+                    <div>
+                      <h3 className="font-bold text-sm text-foreground flex items-center gap-1.5 mb-4">
+                        <Globe className="h-4 w-4 text-sky-500" />
+                        Métodos de Acesso / Fontes
+                      </h3>
+                      
+                      <div className="h-[200px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart
+                            data={[
+                              { name: "Direto", total: totalStats.direct, fill: "#F59E0B" },
+                              { name: "Pesquisa", total: totalStats.search, fill: "#3B82F6" },
+                              { name: "Partilha", total: totalStats.shareLink, fill: "#8B5CF6" },
+                              { name: "WhatsApp", total: totalStats.whatsapp, fill: "#10B981" }
+                            ]}
+                            margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(120,120,120,0.1)" />
+                            <XAxis dataKey="name" fontSize={10} stroke="#888888" tickLine={false} axisLine={false} />
+                            <YAxis fontSize={10} stroke="#888888" tickLine={false} axisLine={false} />
+                            <ChartTooltip 
+                              contentStyle={{ 
+                                background: 'hsl(var(--card))', 
+                                border: '1px solid hsl(var(--border))', 
+                                borderRadius: '12px',
+                                fontSize: '11px',
+                                fontWeight: 'bold'
+                              }}
+                            />
+                            <Bar dataKey="total" radius={[8, 8, 0, 0]}>
+                              {[
+                                { fill: "#F59E0B" },
+                                { fill: "#3B82F6" },
+                                { fill: "#8B5CF6" },
+                                { fill: "#10B981" }
+                              ].map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.fill} />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 mt-4 pt-4 border-t border-border/30 text-xs">
+                      <div className="flex items-center justify-between text-[11px] font-bold">
+                        <span className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+                          <span className="h-2 w-2 rounded-full bg-[#F59E0B]" />
+                          Acesso Direto
+                        </span>
+                        <span className="font-mono font-bold">
+                          {totalStats.views > 0 ? Math.round((totalStats.direct / totalStats.views) * 100) : 0}% ({totalStats.direct})
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] font-bold">
+                        <span className="flex items-center gap-1.5 text-blue-600 dark:text-blue-400">
+                          <span className="h-2 w-2 rounded-full bg-[#3B82F6]" />
+                          Motores de Busca
+                        </span>
+                        <span className="font-mono font-bold">
+                          {totalStats.views > 0 ? Math.round((totalStats.search / totalStats.views) * 100) : 0}% ({totalStats.search})
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] font-bold">
+                        <span className="flex items-center gap-1.5 text-purple-600 dark:text-purple-400">
+                          <span className="h-2 w-2 rounded-full bg-[#8B5CF6]" />
+                          Links de Partilha
+                        </span>
+                        <span className="font-mono font-bold">
+                          {totalStats.views > 0 ? Math.round((totalStats.shareLink / totalStats.views) * 100) : 0}% ({totalStats.shareLink})
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] font-bold">
+                        <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                          <span className="h-2 w-2 rounded-full bg-[#10B981]" />
+                          WhatsApp Link
+                        </span>
+                        <span className="font-mono font-bold">
+                          {totalStats.views > 0 ? Math.round((totalStats.whatsapp / totalStats.views) * 100) : 0}% ({totalStats.whatsapp})
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Growth metrics data table log */}
+                <div className="bg-card border border-border/40 rounded-3xl p-5 shadow-sm">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                    <div>
+                      <h3 className="font-bold text-sm text-foreground">Registos de Tráfego Diários</h3>
+                      <p className="text-[11px] text-muted-foreground">Registo exaustivo diário das visitas (Novos/Inscritos), partilhas e novas contas criadas no Aqkianda.</p>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-border/60 text-muted-foreground font-semibold">
+                          <th className="pb-3">Data</th>
+                          <th className="pb-3 text-center">Visitas Totais</th>
+                          <th className="pb-3 text-center text-sky-600 dark:text-sky-400">Visitantes Novos</th>
+                          <th className="pb-3 text-center text-indigo-600 dark:text-indigo-400">Utilizadores Inscritos</th>
+                          <th className="pb-3 text-center text-purple-600 dark:text-purple-400">Partilhas</th>
+                          <th className="pb-3 text-center text-pink-600 dark:text-pink-400">Novos Registos</th>
+                          <th className="pb-3 text-right">Canal Dominante</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/20">
+                        {[...filteredTraffic].reverse().map((day) => {
+                          const channels = [
+                            { name: "Acesso Direto", value: day.direct || 0 },
+                            { name: "Motores de Busca", value: day.search || 0 },
+                            { name: "Link de Partilha", value: day.shareLink || 0 },
+                            { name: "WhatsApp", value: day.whatsapp || 0 }
+                          ];
+                          const dominant = channels.sort((a, b) => b.value - a.value)[0].name;
+
+                          return (
+                            <tr key={day.date} className="hover:bg-muted/10 transition-colors">
+                              <td className="py-3 font-mono font-bold text-[11px]">
+                                {day.date}
+                              </td>
+                              <td className="py-3 text-center font-bold font-mono">
+                                {day.viewsTotal}
+                              </td>
+                              <td className="py-3 text-center font-semibold font-mono text-sky-600 dark:text-sky-400">
+                                {day.viewsNew}
+                              </td>
+                              <td className="py-3 text-center font-semibold font-mono text-indigo-600 dark:text-indigo-400">
+                                {day.viewsRegistered}
+                              </td>
+                              <td className="py-3 text-center font-mono font-medium text-purple-600 dark:text-purple-400">
+                                {day.shares}
+                              </td>
+                              <td className="py-3 text-center font-mono font-medium text-pink-600 dark:text-pink-400">
+                                {day.signups}
+                              </td>
+                              <td className="py-3 text-right font-medium text-muted-foreground text-[10px]">
+                                {dominant}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </motion.div>

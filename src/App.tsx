@@ -36,6 +36,7 @@ import { AuthProvider } from "./context/AuthContext";
 import AuthModal from "./components/AuthModal";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ScrollToTop from "./components/ScrollToTop";
+import TrafficTracker from "./components/TrafficTracker";
 import MobileBottomNav from "./components/MobileBottomNav";
 import GracePeriodBanner from "./components/GracePeriodBanner";
 
@@ -53,6 +54,7 @@ const App = () => (
                 <Sonner />
                 <AuthModal />
                 <ScrollToTop />
+                <TrafficTracker />
                 <div className="pb-12 lg:pb-0 min-h-screen flex flex-col">
                   <Routes>
                     <Route path="/" element={<Index />} />
