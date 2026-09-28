@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { recordPlatformSignup } from "@/utils/analytics";
+import { normalizePhoneNumber, isPhoneNumberInput } from "@/lib/phone";
 
 export interface User {
   id?: string;
@@ -223,24 +224,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const login = async (email: string, pass: string, redirectUrl?: string): Promise<boolean> => {
-    if (!email || !pass) {
+  const login = async (emailOrPhone: string, pass: string, redirectUrl?: string): Promise<boolean> => {
+    if (!emailOrPhone || !pass) {
       toast({
         variant: "destructive",
         title: "Campos obrigatórios",
-        description: "Por favor, introduz o teu e-mail e a tua palavra-passe.",
+        description: "Por favor, introduz o teu e-mail ou número de telemóvel e a tua palavra-passe.",
       });
       return false;
     }
 
-    const cleanEmail = email.trim().toLowerCase();
+    const rawInput = emailOrPhone.trim();
+    const cleanInput = isPhoneNumberInput(rawInput) ? normalizePhoneNumber(rawInput) : rawInput;
 
-    // 1. Autenticação estrita no Backend / MySQL
+    // 1. Autenticação estrita no Backend / MySQL (por e-mail ou telemóvel)
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: cleanEmail, password: pass })
+        body: JSON.stringify({ identifier: cleanInput, email: cleanInput, password: pass })
       });
 
       if (res.status === 401) {
@@ -291,7 +293,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     toast({
       variant: "destructive",
       title: "Conta não encontrada",
-      description: "Não existe nenhuma conta registada com este endereço de e-mail. Por favor, cria uma conta antes de entrar.",
+      description: "Não foi encontrada nenhuma conta com este e-mail ou número de telemóvel. Por favor, regista-te primeiro.",
     });
     return false;
   };
@@ -316,7 +318,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const cleanEmail = email.trim().toLowerCase();
     const cleanName = name.trim();
-    const cleanPhone = phone ? phone.trim() : "";
+    const cleanPhone = normalizePhoneNumber(phone);
     const newUserId = `usr-${Date.now()}`;
     const userAvatar = cleanName
       .split(" ")

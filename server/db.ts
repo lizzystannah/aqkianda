@@ -1176,9 +1176,37 @@ export async function findDbUserByEmail(email: string): Promise<DbUserRecord | n
   return user;
 }
 
+export function getPhoneCoreDigits(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const digits = raw.replace(/\D/g, "");
+  if (digits.startsWith("244") && digits.length === 12) {
+    return digits.slice(3);
+  }
+  if (digits.length >= 9) {
+    return digits.slice(-9);
+  }
+  return digits;
+}
+
+export function normalizePhoneNumber(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const trimmed = raw.trim();
+  const digits = trimmed.replace(/\D/g, "");
+  if (!digits) return trimmed;
+
+  const core = getPhoneCoreDigits(trimmed);
+  if (core.length === 9 && core.startsWith("9")) {
+    return `+244 ${core.slice(0, 3)} ${core.slice(3, 6)} ${core.slice(6)}`;
+  }
+  if (core.length === 9) {
+    return `${core.slice(0, 3)} ${core.slice(3, 6)} ${core.slice(6)}`;
+  }
+  return trimmed;
+}
+
 export async function findDbUserByIdentifier(identifier: string): Promise<DbUserRecord | null> {
   const clean = identifier.trim().toLowerCase();
-  const digitsOnly = identifier.replace(/\D/g, "");
+  const coreDigits = getPhoneCoreDigits(identifier);
   let user: DbUserRecord | null = null;
   
   if (isDbConnected && pool) {
@@ -1186,9 +1214,9 @@ export async function findDbUserByIdentifier(identifier: string): Promise<DbUser
       const [rows] = (await pool.query(`
         SELECT id, name, email, password_hash as password, phone, role, avatar, location, security_question as securityQuestion, security_answer as securityAnswer, status, DATE_FORMAT(created_at, '%d/%m/%Y') as registeredAt 
         FROM users 
-        WHERE LOWER(email) = ? OR (phone IS NOT NULL AND REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+', '') LIKE ?)
+        WHERE LOWER(email) = ? OR (phone IS NOT NULL AND REPLACE(REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+', ''), '244', '') LIKE ?)
         LIMIT 1
-      `, [clean, `%${digitsOnly ? digitsOnly.slice(-9) : "___NOT_MATCH___"}%`])) as [mysql.RowDataPacket[], unknown];
+      `, [clean, `%${coreDigits && coreDigits.length >= 7 ? coreDigits : "___NOT_MATCH___"}%`])) as [mysql.RowDataPacket[], unknown];
       
       if (rows && rows.length > 0) {
         user = rows[0] as unknown as DbUserRecord;
@@ -1199,10 +1227,14 @@ export async function findDbUserByIdentifier(identifier: string): Promise<DbUser
   }
 
   if (!user) {
-    user = inMemoryUsers.find(u => 
-      u.email.toLowerCase() === clean || 
-      (digitsOnly.length >= 7 && u.phone && u.phone.replace(/\D/g, "").includes(digitsOnly.slice(-7)))
-    ) || null;
+    user = inMemoryUsers.find(u => {
+      if (u.email.toLowerCase() === clean) return true;
+      if (coreDigits && coreDigits.length >= 7 && u.phone) {
+        const uCore = getPhoneCoreDigits(u.phone);
+        return uCore.includes(coreDigits) || coreDigits.includes(uCore);
+      }
+      return false;
+    }) || null;
   }
 
   if (user && isAdminEmail(user.email)) {
@@ -1214,6 +1246,7 @@ export async function findDbUserByIdentifier(identifier: string): Promise<DbUser
 
 export async function createDbUser(user: DbUserRecord): Promise<DbUserRecord> {
   const cleanEmail = user.email.trim().toLowerCase();
+  const cleanPhone = normalizePhoneNumber(user.phone);
   const userRole = isAdminEmail(cleanEmail) ? "admin" : (user.role || "user");
   const registeredAt = user.registeredAt || new Date().toLocaleDateString("pt-AO");
   
@@ -1235,7 +1268,7 @@ export async function createDbUser(user: DbUserRecord): Promise<DbUserRecord> {
         user.name,
         cleanEmail,
         user.password || null,
-        user.phone || null,
+        cleanPhone || null,
         userRole,
         user.avatar || user.name.slice(0, 2).toUpperCase(),
         user.location || "Luanda, Angola",
@@ -1250,6 +1283,7 @@ export async function createDbUser(user: DbUserRecord): Promise<DbUserRecord> {
   const record: DbUserRecord = {
     ...user,
     email: cleanEmail,
+    phone: cleanPhone || user.phone,
     role: userRole,
     registeredAt
   };

@@ -416,12 +416,12 @@ async function startServer() {
 
   app.post("/api/auth/login", async (req, res) => {
     try {
-      const { email, password } = req.body;
-      if (!email) {
-        return res.status(400).json({ error: "Email é obrigatório" });
+      const { email, identifier, password } = req.body;
+      const cleanIdentifier = (identifier || email || "").trim();
+      if (!cleanIdentifier) {
+        return res.status(400).json({ error: "Email ou número de telemóvel é obrigatório" });
       }
-      const cleanEmail = email.trim().toLowerCase();
-      const user = await findDbUserByEmail(cleanEmail);
+      const user = await findDbUserByIdentifier(cleanIdentifier);
       if (user) {
         if (user.password && password && user.password !== password) {
           return res.status(401).json({ error: "Palavra-passe incorreta" });
