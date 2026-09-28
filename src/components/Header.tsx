@@ -11,7 +11,7 @@ const Header = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const { user, isAuthenticated, logout, openAuthModal } = useAuth();
+  const { user, isAuthenticated, isAdmin, logout, openAuthModal } = useAuth();
   const loc = useLocation();
   const nav = useNavigate();
   const { isDark, toggleTheme } = useTheme();
@@ -116,7 +116,7 @@ const Header = () => {
                         <Link to="/perfil?tab=anuncios" className="flex items-center gap-2 p-2 rounded-xl hover:bg-muted text-sm transition-smooth">
                           <Package className="h-4 w-4" /> Meus Anúncios
                         </Link>
-                        {user.email === "elizangelomanuel@gmail.com" && (
+                        {isAdmin && (
                           <Link to="/admin" className="flex items-center gap-2 p-2 rounded-xl hover:bg-muted text-sm text-[#DC2626] dark:text-red-400 font-bold transition-smooth">
                             <ShieldAlert className="h-4 w-4" /> Painel de Admin
                           </Link>
@@ -232,7 +232,7 @@ const Header = () => {
                       <Link to="/perfil" className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted font-medium transition-smooth">
                         <User className="h-5 w-5" /> Meu Perfil
                       </Link>
-                      {user.email === "elizangelomanuel@gmail.com" && (
+                      {isAdmin && (
                         <Link to="/admin" className="flex items-center gap-3 p-3 rounded-xl hover:bg-red-500/10 text-red-600 dark:text-red-400 font-bold transition-smooth">
                           <ShieldAlert className="h-5 w-5" /> Painel de Admin
                         </Link>

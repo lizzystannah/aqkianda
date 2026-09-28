@@ -182,13 +182,15 @@ const PriceCard = ({
             variant={showPhone ? "secondary" : "outline"} 
             className="h-10 rounded font-bold text-[11px] sm:text-xs transition-all active:scale-95 text-ellipsis whitespace-nowrap overflow-hidden"
             onClick={() => {
-              const phoneNumber = (listing.phone || "923 000 000").replace(/\s+/g, "");
+              const phoneNumber = (listing.phone || "").replace(/\s+/g, "");
               incrementListingClick(listing.id, "contact");
               setShowPhone(true);
-              window.location.href = `tel:${phoneNumber}`;
+              if (phoneNumber) {
+                window.location.href = `tel:${phoneNumber}`;
+              }
             }}
           >
-            <Phone className="h-3.5 w-3.5 mr-1 shrink-0" /> {showPhone ? (listing.phone || "923 000 000") : "Contacto"}
+            <Phone className="h-3.5 w-3.5 mr-1 shrink-0" /> {showPhone ? (listing.phone || "Sem contacto") : "Contacto"}
           </Button>
 
           <Button 

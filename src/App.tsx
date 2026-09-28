@@ -34,6 +34,7 @@ import { ThemeProvider } from "./context/ThemeContext";
 import { RatingsProvider } from "./context/RatingsContext";
 import { AuthProvider } from "./context/AuthContext";
 import AuthModal from "./components/AuthModal";
+import GoogleAuthModal from "./components/GoogleAuthModal";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ScrollToTop from "./components/ScrollToTop";
 import TrafficTracker from "./components/TrafficTracker";
@@ -53,6 +54,7 @@ const App = () => (
                 <Toaster />
                 <Sonner />
                 <AuthModal />
+                <GoogleAuthModal />
                 <ScrollToTop />
                 <TrafficTracker />
                 <div className="pb-12 lg:pb-0 min-h-screen flex flex-col">

@@ -17,6 +17,7 @@ import { listings, formatPrice, Listing, slugify, Category, getCategories, saveC
 import { getListingAnalyticsMap, getListingStats } from "@/utils/analytics";
 import { useToast } from "@/hooks/use-toast";
 import { useRatings } from "@/context/RatingsContext";
+import { ADMIN_EMAIL } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -181,7 +182,7 @@ const Admin = () => {
     if (storedUser) {
       try {
         const parsed = JSON.parse(storedUser);
-        if (parsed && parsed.email === "elizangelomanuel@gmail.com") {
+        if (parsed && parsed.email && parsed.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
           setIsAuthorized(true);
         } else {
           setIsAuthorized(false);
@@ -782,7 +783,7 @@ const Admin = () => {
           </div>
           <h1 className="font-display font-bold text-2xl mb-2">Acesso Restrito</h1>
           <p className="text-muted-foreground text-sm mb-6">
-            Desculpe, esta página é reservada exclusivamente para o administrador principal da plataforma Aqkianda (elizangelomanuel@gmail.com).
+            Desculpe, esta página é reservada exclusivamente para o administrador autorizado da plataforma Aqkianda.
           </p>
           <div className="flex flex-col gap-2 w-full">
             <Button onClick={() => navigate("/")} className="w-full rounded-xl">

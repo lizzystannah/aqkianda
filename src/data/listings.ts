@@ -13,6 +13,8 @@ export type Listing = {
   postedAt: string;
   seller: string;
   phone: string;
+  sellerEmail?: string;
+  sellerId?: string;
   promoEventId?: string;
   promoDiscount?: number;
   promoPrice?: number;

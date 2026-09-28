@@ -207,7 +207,9 @@ const Publicar = () => {
 
     try {
       const sellerName = currentUser?.name || "Anunciante Aqkianda";
-      const sellerPhone = currentUser?.phone || "+244 923 000 000";
+      const sellerPhone = currentUser?.phone || "";
+      const sellerEmail = currentUser?.email || "";
+      const sellerId = currentUser?.id || "";
       
       const listingId = isEditing && id ? id : "custom-" + Date.now();
 
@@ -226,6 +228,8 @@ const Publicar = () => {
         postedAt: "Hoje",
         seller: sellerName,
         phone: sellerPhone,
+        sellerEmail: sellerEmail,
+        sellerId: sellerId,
         ...(joinPromo && {
           promoPrice: calculatedPromoPrice,
           promoDiscount: selectedDiscount,
@@ -532,8 +536,8 @@ const Publicar = () => {
                               categoryId: cat || "eletronica",
                               description: desc || "Sem descrição",
                               postedAt: "Hoje",
-                              seller: "Você",
-                              phone: "+244 923 000 000",
+                              seller: currentUser?.name || "O seu Perfil",
+                              phone: currentUser?.phone || "+244 9XX XXX XXX",
                               promoPrice: joinPromo ? Math.round(parseFloat(price || "0") * (1 - selectedDiscount / 100)) : undefined,
                               promoDiscount: joinPromo ? selectedDiscount : undefined,
                               promoEventId: joinPromo ? selectedPromoId : undefined,

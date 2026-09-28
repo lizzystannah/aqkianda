@@ -43,13 +43,26 @@ const Perfil = () => {
   const { toast } = useToast();
   const { name: routeName } = useParams();
   const navigate = useNavigate();
-  const { user, isAuthenticated, openAuthModal, logout, loginWithGoogle } = useAuth();
+  const { user, isAuthenticated, openAuthModal, logout, openGoogleModal, updateProfile } = useAuth();
 
   const [localListings, setLocalListings] = useState<Listing[]>([]);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const [promoEvents, setPromoEvents] = useState<PromoCampaign[]>([]);
   const [notifications, setNotifications] = useState<SellerNotification[]>([]);
   const [promoMappings, setPromoMappings] = useState<Record<string, PromoMapping>>({});
+
+  // Settings tab form states
+  const [settingsName, setSettingsName] = useState(user?.name || "");
+  const [settingsPhone, setSettingsPhone] = useState(user?.phone || "");
+  const [settingsProvince, setSettingsProvince] = useState(user?.province || "Luanda");
+
+  useEffect(() => {
+    if (user) {
+      setSettingsName(user.name || "");
+      setSettingsPhone(user.phone || "");
+      setSettingsProvince(user.province || "Luanda");
+    }
+  }, [user]);
 
   // Active mapping selection state for modal
   const [isPromoModalOpen, setIsPromoModalOpen] = useState(false);
@@ -284,11 +297,34 @@ const Perfil = () => {
   const userName = user?.name || "Utilizador";
   const userInitials = user?.avatar || userName.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase() || "AO";
 
+  // Accurate exclusive user listing filtering
+  const isMyListing = (l: Listing) => {
+    if (!user) return false;
+    // Direct userEmail or userId match
+    if (l.sellerEmail && user.email && l.sellerEmail.toLowerCase() === user.email.toLowerCase()) {
+      return true;
+    }
+    if (l.sellerId && user.id && l.sellerId === user.id) {
+      return true;
+    }
+    // Match by seller name, strictly excluding demo seed sellers unless user genuinely has that identity
+    if (l.seller && userName && l.seller.toLowerCase() === userName.toLowerCase()) {
+      if (l.seller === "João Manuel" && user.email !== "joao.manuel@email.ao") {
+        return false;
+      }
+      if (l.seller === "Kalandula Motors" && user.email !== "kalandula@motors.ao") {
+        return false;
+      }
+      return true;
+    }
+    return false;
+  };
+
   // Listings for the "Meus Anúncios" tab (only visible/not hidden)
-  const myListings = localListings.filter(l => (l.seller.toLowerCase() === userName.toLowerCase() || l.seller === "João Manuel") && !hiddenIds.includes(l.id));
+  const myListings = localListings.filter(l => isMyListing(l) && !hiddenIds.includes(l.id));
 
   // Listings for the "Anúncios Ocultos" tab
-  const hiddenMyListings = localListings.filter(l => (l.seller.toLowerCase() === userName.toLowerCase() || l.seller === "João Manuel") && hiddenIds.includes(l.id));
+  const hiddenMyListings = localListings.filter(l => isMyListing(l) && hiddenIds.includes(l.id));
 
   const tabs = [
     { id: "anuncios", label: "Meus Anúncios", icon: Package },
@@ -317,7 +353,7 @@ const Perfil = () => {
             <div className="w-full space-y-3">
               <Button
                 type="button"
-                onClick={() => loginWithGoogle("/perfil")}
+                onClick={() => openGoogleModal("/perfil")}
                 className="w-full h-11 sm:h-12 rounded-xl bg-white dark:bg-gray-900 border-2 border-primary/30 hover:border-primary text-gray-900 dark:text-white font-bold text-xs sm:text-sm shadow-sm transition-all flex items-center justify-center gap-2.5 active:scale-[0.98]"
               >
                 <svg className="h-4 w-4 sm:h-5 sm:w-5 shrink-0" viewBox="0 0 24 24" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
@@ -588,26 +624,63 @@ const Perfil = () => {
               className="max-w-2xl mx-auto space-y-8"
             >
               <div className="bg-card rounded-3xl p-8 border border-border/40 shadow-card space-y-6">
-                <h3 className="font-display font-bold text-xl">Dados Pessoais</h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="font-display font-bold text-xl">Dados Pessoais da Conta</h3>
+                  <span className="text-xs px-2.5 py-1 rounded-full bg-primary/10 text-primary font-bold">
+                    Conta Exclusiva
+                  </span>
+                </div>
                 <div className="grid sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="nome">Nome Completo</Label>
-                    <Input id="nome" defaultValue="João Manuel" className="rounded-xl h-12" />
+                    <Input
+                      id="nome"
+                      value={settingsName}
+                      onChange={(e) => setSettingsName(e.target.value)}
+                      placeholder="O teu nome completo"
+                      className="rounded-xl h-12"
+                    />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
-                    <Input id="email" defaultValue="joao.manuel@email.ao" className="rounded-xl h-12" />
+                    <Label htmlFor="email">Email da Conta</Label>
+                    <Input
+                      id="email"
+                      value={user?.email || ""}
+                      disabled
+                      className="rounded-xl h-12 bg-muted/50 cursor-not-allowed opacity-90"
+                    />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="tel">Telefone</Label>
-                    <Input id="tel" defaultValue="+244 923 000 000" className="rounded-xl h-12" />
+                    <Label htmlFor="tel">Número de Telefone</Label>
+                    <Input
+                      id="tel"
+                      value={settingsPhone}
+                      onChange={(e) => setSettingsPhone(e.target.value)}
+                      placeholder="+244 9XX XXX XXX"
+                      className="rounded-xl h-12"
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="prov">Província</Label>
-                    <Input id="prov" defaultValue="Luanda" className="rounded-xl h-12" />
+                    <Input
+                      id="prov"
+                      value={settingsProvince}
+                      onChange={(e) => setSettingsProvince(e.target.value)}
+                      placeholder="Ex: Luanda, Benguela, Huíla"
+                      className="rounded-xl h-12"
+                    />
                   </div>
                 </div>
-                <Button className="rounded-full gradient-hero text-primary-foreground font-bold px-8">
+                <Button
+                  onClick={() => {
+                    updateProfile({
+                      name: settingsName,
+                      phone: settingsPhone,
+                      province: settingsProvince,
+                    });
+                  }}
+                  className="rounded-full gradient-hero text-primary-foreground font-bold px-8 shadow-md"
+                >
                   Guardar Alterações
                 </Button>
               </div>

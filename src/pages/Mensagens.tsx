@@ -48,37 +48,68 @@ const DEFAULT_MESSAGES: Record<string, Msg[]> = {
 const Mensagens = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { isAuthenticated, openAuthModal, loginWithGoogle } = useAuth();
+  const { isAuthenticated, openAuthModal, openGoogleModal, user } = useAuth();
   const routeState = location.state as { sellerName?: string; productName?: string } | null;
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Scroll window to top on page mount, state transition or view change
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, []);
-
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [routeState]);
+  // User-scoped storage keys
+  const getConvKey = () => (user?.email ? `aqkianda-conversations_${user.email.toLowerCase()}` : "aqkianda-conversations_guest");
+  const getMsgsKey = () => (user?.email ? `aqkianda-messages_${user.email.toLowerCase()}` : "aqkianda-messages_guest");
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [conversationsList, setConversationsList] = useState<typeof DEFAULT_CONVERSATIONS>(() => {
-    const saved = localStorage.getItem("aqkianda-conversations");
-    return saved ? JSON.parse(saved) : DEFAULT_CONVERSATIONS;
-  });
+  const [conversationsList, setConversationsList] = useState<typeof DEFAULT_CONVERSATIONS>([]);
+  const [messagesMap, setMessagesMap] = useState<Record<string, Msg[]>>({});
+  const [activeId, setActiveId] = useState<string>("1");
 
-  const [messagesMap, setMessagesMap] = useState<Record<string, Msg[]>>(() => {
-    const saved = localStorage.getItem("aqkianda-messages");
-    return saved ? JSON.parse(saved) : DEFAULT_MESSAGES;
-  });
+  // Load user-scoped conversations
+  useEffect(() => {
+    const convKey = getConvKey();
+    const msgsKey = getMsgsKey();
 
-  const [activeId, setActiveId] = useState<string>(() => {
-    const saved = localStorage.getItem("aqkianda-conversations");
-    const list = saved ? JSON.parse(saved) : DEFAULT_CONVERSATIONS;
-    return list[0]?.id || "1";
-  });
+    try {
+      const savedConv = localStorage.getItem(convKey);
+      const savedMsgs = localStorage.getItem(msgsKey);
+
+      if (savedConv && savedMsgs) {
+        const parsedConv = JSON.parse(savedConv);
+        const parsedMsgs = JSON.parse(savedMsgs);
+        setConversationsList(parsedConv);
+        setMessagesMap(parsedMsgs);
+        if (parsedConv.length > 0) setActiveId(parsedConv[0].id);
+      } else {
+        // Welcome conversation for new exclusive account
+        const welcomeConv = [
+          {
+            id: `welcome-${Date.now()}`,
+            name: "Suporte Aqkianda",
+            last: "Bem-vindo à Aqkianda!",
+            time: "Agora",
+            unread: 1,
+            avatar: "AQ",
+            product: "Apoio ao Utilizador"
+          }
+        ];
+        const welcomeMsgs: Record<string, Msg[]> = {
+          [welcomeConv[0].id]: [
+            {
+              from: "them",
+              text: `Olá ${user?.name || "Utilizador"}! Bem-vindo(a) à Aqkianda. Este é o teu canal exclusivo de mensagens. Podes negociar produtos e serviços com segurança.`,
+              time: "Agora"
+            }
+          ]
+        };
+        setConversationsList(welcomeConv);
+        setMessagesMap(welcomeMsgs);
+        setActiveId(welcomeConv[0].id);
+        localStorage.setItem(convKey, JSON.stringify(welcomeConv));
+        localStorage.setItem(msgsKey, JSON.stringify(welcomeMsgs));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [user?.email]);
 
   const [mobileActiveView, setMobileActiveView] = useState<"list" | "chat">("list");
   const [text, setText] = useState("");
@@ -195,7 +226,7 @@ const Mensagens = () => {
     const newMessagesMap = { ...messagesMap, [active.id]: updatedMsgs };
     
     setMessagesMap(newMessagesMap);
-    localStorage.setItem("aqkianda-messages", JSON.stringify(newMessagesMap));
+    localStorage.setItem(getMsgsKey(), JSON.stringify(newMessagesMap));
 
     const lastPreview = attachedImage ? "📷 [Imagem enviada]" : text.trim();
 
@@ -220,7 +251,7 @@ const Mensagens = () => {
     }
 
     setConversationsList(updatedList);
-    localStorage.setItem("aqkianda-conversations", JSON.stringify(updatedList));
+    localStorage.setItem(getConvKey(), JSON.stringify(updatedList));
     setText("");
     setAttachedImage(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -251,7 +282,7 @@ const Mensagens = () => {
             <div className="w-full space-y-3">
               <Button
                 type="button"
-                onClick={() => loginWithGoogle("/mensagens")}
+                onClick={() => openGoogleModal("/mensagens")}
                 className="w-full h-11 sm:h-12 rounded-xl bg-white dark:bg-gray-900 border-2 border-primary/30 hover:border-primary text-gray-900 dark:text-white font-bold text-xs sm:text-sm shadow-sm transition-all flex items-center justify-center gap-2.5 active:scale-[0.98]"
               >
                 <svg className="h-4 w-4 sm:h-5 sm:w-5 shrink-0" viewBox="0 0 24 24" width="24" height="24" xmlns="http://www.w3.org/2000/svg">

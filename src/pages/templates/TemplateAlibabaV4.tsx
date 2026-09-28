@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { listings, categories, formatPrice } from "@/data/listings";
 import { useTheme } from "@/context/ThemeContext";
 import { useFavorites } from "@/context/FavoritesContext";
+import { useAuth } from "@/context/AuthContext";
 import ListingCard from "@/components/ListingCard";
 import { useDocumentMetadata } from "@/hooks/useDocumentMetadata";
 
@@ -68,10 +69,10 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 const TemplateAlibabaV4 = () => {
     const { isDark: darkMode, toggleTheme: toggleDarkMode } = useTheme();
     const { toggleFavorite, isFavorite } = useFavorites();
+    const { user, isAdmin, logout } = useAuth();
     const [searchQuery, setSearchQuery] = useState("");
     const [scrolled, setScrolled] = useState(false);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-    const [user, setUser] = useState<{ name: string; email: string; phone?: string } | null>(null);
     const [currentSlide, setCurrentSlide] = useState(0);
     const navigate = useNavigate();
 
@@ -126,25 +127,13 @@ const TemplateAlibabaV4 = () => {
     }, [dynamicSlides.length]);
 
     useEffect(() => {
-        const storedUser = localStorage.getItem("user");
-        if (storedUser) {
-            try {
-                setUser(JSON.parse(storedUser));
-            } catch (err) {
-                setUser(null);
-            }
-        }
-    }, []);
-
-    useEffect(() => {
         const handleScroll = () => setScrolled(window.scrollY > 40);
         window.addEventListener("scroll", handleScroll);
         return () => window.removeEventListener("scroll", handleScroll);
     }, []);
 
     const handleLogout = () => {
-        localStorage.removeItem("user");
-        setUser(null);
+        logout();
     };
 
     const handleSearch = (e?: React.FormEvent) => {
@@ -266,7 +255,7 @@ const TemplateAlibabaV4 = () => {
                         </div>
                         <div className="flex items-center gap-4 text-xs shrink-0">
                             <Link to="/explorar" className="hover:text-primary transition-colors">Explorar artigos</Link>
-                            {user?.email === "elizangelomanuel@gmail.com" && (
+                            {isAdmin && (
                                 <Link to="/admin" className="hover:text-primary transition-colors flex items-center gap-1 font-bold text-[#DC2626]"><Shield className="h-3.5 w-3.5" /> Administração</Link>
                             )}
                         </div>

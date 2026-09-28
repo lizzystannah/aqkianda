@@ -293,3 +293,118 @@ export async function incrementSignup() {
   }
   todayRec.signups += 1;
 }
+
+// ==============================================================
+// USER AUTHENTICATION & PROFILE MYSQL HELPERS
+// ==============================================================
+export interface DbUserRecord {
+  id: string;
+  name: string;
+  email: string;
+  password?: string;
+  phone?: string;
+  role?: string;
+  avatar?: string;
+  location?: string;
+  status?: string;
+}
+
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "elizangelomanuel@gmail.com").toLowerCase();
+
+const inMemoryUsers: DbUserRecord[] = [
+  {
+    id: "usr-admin-1",
+    name: "Administrador Aqkianda",
+    email: ADMIN_EMAIL,
+    role: "admin",
+    phone: "",
+    avatar: "AQ",
+    location: "Luanda, Angola"
+  }
+];
+
+export async function findDbUserByEmail(email: string): Promise<DbUserRecord | null> {
+  const cleanEmail = email.trim().toLowerCase();
+  if (isDbConnected && pool) {
+    try {
+      const [rows] = (await pool.query(
+        "SELECT id, name, email, password_hash as password, phone, role, avatar, location, status FROM users WHERE LOWER(email) = ?",
+        [cleanEmail]
+      )) as [mysql.RowDataPacket[], unknown];
+      if (rows && rows.length > 0) {
+        return rows[0] as unknown as DbUserRecord;
+      }
+    } catch (e) {
+      console.error("Error finding user in MySQL:", e);
+    }
+  }
+  return inMemoryUsers.find(u => u.email.toLowerCase() === cleanEmail) || null;
+}
+
+export async function createDbUser(user: DbUserRecord): Promise<DbUserRecord> {
+  const cleanEmail = user.email.trim().toLowerCase();
+  const userRole = cleanEmail === ADMIN_EMAIL ? "admin" : (user.role || "user");
+  
+  if (isDbConnected && pool) {
+    try {
+      await pool.query(`
+        INSERT INTO users (id, name, email, password_hash, phone, role, avatar, location)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          name = VALUES(name),
+          phone = VALUES(phone),
+          avatar = VALUES(avatar),
+          location = VALUES(location)
+      `, [
+        user.id,
+        user.name,
+        cleanEmail,
+        user.password || null,
+        user.phone || null,
+        userRole,
+        user.avatar || user.name.slice(0, 2).toUpperCase(),
+        user.location || "Luanda, Angola"
+      ]);
+    } catch (e) {
+      console.error("Error creating user in MySQL:", e);
+    }
+  }
+
+  const existingIdx = inMemoryUsers.findIndex(u => u.email.toLowerCase() === cleanEmail);
+  if (existingIdx >= 0) {
+    inMemoryUsers[existingIdx] = { ...inMemoryUsers[existingIdx], ...user, role: userRole };
+    return inMemoryUsers[existingIdx];
+  } else {
+    const newUser = { ...user, role: userRole };
+    inMemoryUsers.push(newUser);
+    return newUser;
+  }
+}
+
+export async function updateDbUserProfile(email: string, updates: { name?: string; phone?: string; location?: string }): Promise<boolean> {
+  const cleanEmail = email.trim().toLowerCase();
+  if (isDbConnected && pool) {
+    try {
+      await pool.query(`
+        UPDATE users 
+        SET 
+          name = COALESCE(?, name),
+          phone = COALESCE(?, phone),
+          location = COALESCE(?, location)
+        WHERE LOWER(email) = ?
+      `, [updates.name || null, updates.phone || null, updates.location || null, cleanEmail]);
+      return true;
+    } catch (e) {
+      console.error("Error updating user in MySQL:", e);
+    }
+  }
+
+  const user = inMemoryUsers.find(u => u.email.toLowerCase() === cleanEmail);
+  if (user) {
+    if (updates.name) user.name = updates.name;
+    if (updates.phone) user.phone = updates.phone;
+    if (updates.location) user.location = updates.location;
+    return true;
+  }
+  return false;
+}

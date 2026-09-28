@@ -8,7 +8,10 @@ import {
   incrementVisit, 
   incrementShare, 
   incrementSignup, 
-  isDbConnected 
+  isDbConnected,
+  findDbUserByEmail,
+  createDbUser,
+  updateDbUserProfile
 } from "./server/db.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -87,6 +90,84 @@ async function startServer() {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Erro desconhecido";
       res.status(500).json({ error: "Erro ao registar inscrição", message });
+    }
+  });
+
+  // User Authentication & Profile Endpoints connected to MySQL
+  app.post("/api/auth/register", async (req, res) => {
+    try {
+      const { id, name, email, phone, password, location } = req.body;
+      if (!email || !name) {
+        return res.status(400).json({ error: "Nome e email são obrigatórios" });
+      }
+      const user = await createDbUser({
+        id: id || `usr-${Date.now()}`,
+        name,
+        email,
+        phone,
+        password,
+        location: location || "Luanda, Angola"
+      });
+      await incrementSignup();
+      res.json({ success: true, user });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro desconhecido";
+      res.status(500).json({ error: "Erro ao registar utilizador", message });
+    }
+  });
+
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const { email, password } = req.body;
+      if (!email) {
+        return res.status(400).json({ error: "Email é obrigatório" });
+      }
+      const user = await findDbUserByEmail(email);
+      if (user) {
+        if (user.password && password && user.password !== password) {
+          return res.status(401).json({ error: "Palavra-passe incorreta" });
+        }
+        return res.json({ success: true, user });
+      }
+      return res.status(404).json({ error: "Utilizador não encontrado" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro desconhecido";
+      res.status(500).json({ error: "Erro ao verificar utilizador", message });
+    }
+  });
+
+  app.post("/api/auth/google", async (req, res) => {
+    try {
+      const { id, name, email, phone, avatar, location } = req.body;
+      if (!email || !name) {
+        return res.status(400).json({ error: "Nome e email são obrigatórios" });
+      }
+      const user = await createDbUser({
+        id: id || `usr-g-${Date.now()}`,
+        name,
+        email,
+        phone,
+        avatar,
+        location: location || "Luanda, Angola"
+      });
+      res.json({ success: true, user });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro desconhecido";
+      res.status(500).json({ error: "Erro ao sincronizar utilizador Google", message });
+    }
+  });
+
+  app.put("/api/auth/profile", async (req, res) => {
+    try {
+      const { email, name, phone, location } = req.body;
+      if (!email) {
+        return res.status(400).json({ error: "Email é obrigatório" });
+      }
+      const updated = await updateDbUserProfile(email, { name, phone, location });
+      res.json({ success: updated });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro desconhecido";
+      res.status(500).json({ error: "Erro ao atualizar perfil", message });
     }
   });
 

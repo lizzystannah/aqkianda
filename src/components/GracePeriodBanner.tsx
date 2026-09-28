@@ -116,7 +116,7 @@ export const GracePeriodBanner: React.FC = () => {
                 <Input
                   type="tel"
                   required
-                  placeholder="+244 923 000 000"
+                  placeholder="+244 9XX XXX XXX"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   className="text-xs h-10"

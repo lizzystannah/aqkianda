@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Listing } from '@/data/listings';
+import { useAuth } from './AuthContext';
 
 interface FavoritesContextType {
   favorites: string[];
@@ -10,14 +10,32 @@ interface FavoritesContextType {
 const FavoritesContext = createContext<FavoritesContextType | undefined>(undefined);
 
 export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [favorites, setFavorites] = useState<string[]>(() => {
-    const saved = localStorage.getItem('aqkianda-favorites');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const { user } = useAuth();
+  
+  const getStorageKey = () => {
+    return user?.email 
+      ? `aqkianda-favorites_${user.email.toLowerCase()}` 
+      : 'aqkianda-favorites_guest';
+  };
 
+  const [favorites, setFavorites] = useState<string[]>([]);
+
+  // Reload favorites whenever user changes
   useEffect(() => {
-    localStorage.setItem('aqkianda-favorites', JSON.stringify(favorites));
-  }, [favorites]);
+    const key = getStorageKey();
+    try {
+      const saved = localStorage.getItem(key);
+      setFavorites(saved ? JSON.parse(saved) : []);
+    } catch (e) {
+      setFavorites([]);
+    }
+  }, [user?.email]);
+
+  // Save favorites whenever favorites state changes
+  useEffect(() => {
+    const key = getStorageKey();
+    localStorage.setItem(key, JSON.stringify(favorites));
+  }, [favorites, user?.email]);
 
   const toggleFavorite = (id: string) => {
     setFavorites(prev => 
