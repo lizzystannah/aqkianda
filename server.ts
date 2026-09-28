@@ -27,7 +27,12 @@ import {
   getDbMessages,
   createDbMessage,
   getDbReports,
-  createDbReport
+  createDbReport,
+  getAllDbBanners,
+  createDbBanner,
+  deleteDbBanner,
+  getAdminPassword,
+  isAdminEmail
 } from "./server/db.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -38,6 +43,7 @@ async function startServer() {
   await initializeDatabase();
 
   const app = express();
+  app.set("trust proxy", true);
   const PORT = process.env.PORT || 3000;
 
   app.use(express.json({ limit: "25mb" }));
@@ -76,9 +82,35 @@ async function startServer() {
       return url.replace(/\/+$/, "");
     }
     if (req) {
-      const protocol = req.headers["x-forwarded-proto"] || req.protocol || "http";
-      const host = req.headers["x-forwarded-host"] || req.get("host") || `localhost:${PORT}`;
-      return `${protocol}://${host}`.replace(/\/+$/, "");
+      // 1. Check referer/origin header if present from browser request
+      const ref = req.headers["referer"] || req.headers["origin"];
+      if (ref && typeof ref === "string" && !ref.includes("localhost") && !ref.includes("127.0.0.1") && !ref.includes("quantterm_")) {
+        try {
+          const parsed = new URL(ref);
+          return `${parsed.protocol}//${parsed.host}`.replace(/\/+$/, "");
+        } catch (e) {
+          // ignore invalid URL
+        }
+      }
+
+      // 2. Check X-Forwarded-Host or Host
+      const rawForwardedHost = req.headers["x-forwarded-host"];
+      const rawForwardedProto = req.headers["x-forwarded-proto"];
+      
+      const proto = Array.isArray(rawForwardedProto) ? rawForwardedProto[0] : (rawForwardedProto ? rawForwardedProto.split(",")[0].trim() : (req.protocol || "https"));
+      
+      let host = Array.isArray(rawForwardedHost) ? rawForwardedHost[0] : (rawForwardedHost ? rawForwardedHost.split(",")[0].trim() : (req.headers["host"] || req.get("host") || ""));
+
+      if (host.includes("quantterm_") || host.includes("127.0.0.1") || host.includes("localhost")) {
+        const hostHeader = req.get("host") || "";
+        if (hostHeader && !hostHeader.includes("quantterm_")) {
+          host = hostHeader;
+        }
+      }
+
+      if (host && !host.includes("quantterm_")) {
+        return `${proto}://${host}`.replace(/\/+$/, "");
+      }
     }
     return `http://localhost:${PORT}`;
   };
@@ -423,7 +455,14 @@ async function startServer() {
       }
       const user = await findDbUserByIdentifier(cleanIdentifier);
       if (user) {
-        if (user.password && password && user.password !== password) {
+        const envAdminPass = getAdminPassword();
+        const isRoot = isAdminEmail(user.email);
+        
+        if (isRoot && envAdminPass) {
+          if (password !== user.password && password !== envAdminPass) {
+            return res.status(401).json({ error: "Palavra-passe incorreta" });
+          }
+        } else if (user.password && password && user.password !== password) {
           return res.status(401).json({ error: "Palavra-passe incorreta" });
         }
         return res.json({ 
@@ -565,6 +604,37 @@ async function startServer() {
       { slug: "empregos", name: "Empregos", icon: "Briefcase" },
       { slug: "servicos", name: "Serviços", icon: "Wrench" }
     ]);
+  });
+
+  // Banners API (MySQL persistent banners with fallback)
+  app.get("/api/banners", async (req, res) => {
+    try {
+      const banners = await getAllDbBanners();
+      res.json(banners);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro desconhecido";
+      res.status(500).json({ error: "Erro ao carregar banners", message });
+    }
+  });
+
+  app.post("/api/banners", async (req, res) => {
+    try {
+      const banner = await createDbBanner(req.body);
+      res.json({ success: true, banner });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro desconhecido";
+      res.status(500).json({ error: "Erro ao guardar banner", message });
+    }
+  });
+
+  app.delete("/api/banners/:id", async (req, res) => {
+    try {
+      await deleteDbBanner(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro desconhecido";
+      res.status(500).json({ error: "Erro ao remover banner", message });
+    }
   });
 
   // Dev mode: Vite middleware

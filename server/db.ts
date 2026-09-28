@@ -113,6 +113,10 @@ export function isAdminEmail(email: string | null | undefined): boolean {
   return getAdminEmails().includes(clean);
 }
 
+export function getAdminPassword(): string {
+  return process.env.ADMIN_PASSWORD || process.env.ROOT_PASSWORD || process.env.VITE_ADMIN_PASSWORD || "";
+}
+
 const ADMIN_EMAIL = getAdminEmails()[0] || "admin@aqkianda.com";
 
 // ==============================================================
@@ -305,6 +309,7 @@ const inMemoryUsers: DbUserRecord[] = [
     id: "usr-admin-1",
     name: "Administrador Aqkianda",
     email: ADMIN_EMAIL,
+    password: getAdminPassword() || undefined,
     role: "admin",
     phone: "",
     avatar: "AQ",
@@ -550,6 +555,35 @@ export async function initializeDatabase() {
           s.date, s.viewsTotal, s.viewsNew, s.viewsRegistered, s.shares, s.signups, s.direct, s.search, s.shareLink, s.whatsapp
         ]);
       }
+    }
+
+    // 9. Sync configured Root / Admin user from environment variables
+    const adminEmails = getAdminEmails();
+    const envAdminPass = getAdminPassword();
+    const primaryAdminEmail = adminEmails[0] || "admin@aqkianda.com";
+
+    try {
+      if (envAdminPass) {
+        await pool.query(`
+          INSERT INTO \`users\` (\`id\`, \`name\`, \`email\`, \`password_hash\`, \`role\`, \`location\`)
+          VALUES ('usr-admin-1', 'Administrador Aqkianda', ?, ?, 'admin', 'Luanda, Angola')
+          ON DUPLICATE KEY UPDATE 
+            \`email\` = VALUES(\`email\`),
+            \`password_hash\` = VALUES(\`password_hash\`),
+            \`role\` = 'admin';
+        `, [primaryAdminEmail, envAdminPass]);
+      } else {
+        await pool.query(`
+          INSERT INTO \`users\` (\`id\`, \`name\`, \`email\`, \`role\`, \`location\`)
+          VALUES ('usr-admin-1', 'Administrador Aqkianda', ?, 'admin', 'Luanda, Angola')
+          ON DUPLICATE KEY UPDATE 
+            \`email\` = VALUES(\`email\`),
+            \`role\` = 'admin';
+        `, [primaryAdminEmail]);
+      }
+      console.log(`🔐 Utilizador Root/Admin ('${primaryAdminEmail}') verificado e sincronizado no MySQL.`);
+    } catch (adminErr) {
+      console.error("Error syncing root admin user in MySQL:", adminErr);
     }
 
   } catch (error) {
@@ -1421,4 +1455,108 @@ export async function updateDbUserStatus(userId: string, status: string): Promis
     return true;
   }
   return false;
+}
+
+export interface DbBannerRecord {
+  id: string;
+  title: string;
+  subtitle: string;
+  image: string;
+  link: string;
+  buttonText: string;
+  isActive: boolean;
+}
+
+export async function getAllDbBanners(): Promise<DbBannerRecord[]> {
+  if (isDbConnected && pool) {
+    try {
+      const [rows] = (await pool.query(`
+        SELECT id, title, subtitle, image_url as image, link_url as link, button_text as buttonText, is_active as isActive 
+        FROM banners 
+        WHERE is_active = 1
+        ORDER BY id ASC
+      `)) as [mysql.RowDataPacket[], unknown];
+      
+      if (rows && rows.length > 0) {
+        return rows.map(r => ({
+          ...r,
+          isActive: Boolean(r.isActive)
+        })) as DbBannerRecord[];
+      }
+    } catch (e) {
+      console.error("Error fetching banners from MySQL:", e);
+    }
+  }
+
+  return [
+    {
+      id: "b1",
+      title: "Grande Inauguração Aqkianda",
+      subtitle: "A maior plataforma de negócios em Angola chegou! Descontos especiais de parceiros.",
+      image: "https://images.unsplash.com/photo-1489987707025-afc232f7ea0f?auto=format&fit=crop&w=1920&q=80",
+      link: "/explorar",
+      buttonText: "Explorar Ofertas",
+      isActive: true
+    },
+    {
+      id: "b2",
+      title: "Campanha Cacimbo Tech",
+      subtitle: "Smartphones, Laptops e Acessórios com até 30% de desconto real.",
+      image: "https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=1920&q=80",
+      link: "/explorar?cat=eletronica",
+      buttonText: "Ver Tecnologia",
+      isActive: true
+    },
+    {
+      id: "b3",
+      title: "Automóveis & Imóveis",
+      subtitle: "Encontre os melhores carros e casas de Luanda às melhores condições.",
+      image: "https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=1920&q=80",
+      link: "/explorar?cat=viaturas",
+      buttonText: "Ver Imóveis",
+      isActive: true
+    }
+  ];
+}
+
+export async function createDbBanner(banner: DbBannerRecord): Promise<DbBannerRecord> {
+  const newId = banner.id || `b-${Date.now()}`;
+  if (isDbConnected && pool) {
+    try {
+      await pool.query(`
+        INSERT INTO banners (id, title, subtitle, image_url, link_url, button_text, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          title = VALUES(title),
+          subtitle = VALUES(subtitle),
+          image_url = VALUES(image_url),
+          link_url = VALUES(link_url),
+          button_text = VALUES(button_text),
+          is_active = VALUES(is_active)
+      `, [
+        newId,
+        banner.title || "",
+        banner.subtitle || "",
+        banner.image || "",
+        banner.link || "",
+        banner.buttonText || "Ver Mais",
+        banner.isActive !== false ? 1 : 0
+      ]);
+    } catch (e) {
+      console.error("Error creating banner in MySQL:", e);
+    }
+  }
+  return { ...banner, id: newId, isActive: banner.isActive !== false };
+}
+
+export async function deleteDbBanner(id: string): Promise<boolean> {
+  if (isDbConnected && pool) {
+    try {
+      await pool.query("DELETE FROM banners WHERE id = ?", [id]);
+      return true;
+    } catch (e) {
+      console.error("Error deleting banner from MySQL:", e);
+    }
+  }
+  return true;
 }
