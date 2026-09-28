@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useRatings } from "@/context/RatingsContext";
 import { useAuth } from "@/context/AuthContext";
 import { useDocumentMetadata } from "@/hooks/useDocumentMetadata";
+import { getListingUrl, copyUrlToClipboard, getSellerPath } from "@/config/urls";
 
 // Helper to retrieve custom multiple images for the listing gallery based on category to look highly realistic
 const getListingImages = (listing: Listing) => {
@@ -274,6 +275,7 @@ const Anuncio = () => {
     title: listing ? `${listing.title} — ${formatPrice(listing.price, listing.currency || "AOA")}` : "Anúncio não encontrado",
     description: listing ? `${listing.description} — Localização: ${listing.location}, Estado: ${listing.condition}` : undefined,
     image: listing?.image,
+    url: listing ? getListingUrl(listing.id, listing.title) : undefined,
     type: "article",
   });
   
@@ -332,6 +334,21 @@ const Anuncio = () => {
       };
       existingReports.push(newReport);
       localStorage.setItem("aqkianda-reports", JSON.stringify(existingReports));
+
+      // Sync with backend MySQL API
+      fetch("/api/reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: newReport.id,
+          listingId: listing?.id,
+          listingTitle: listing?.title,
+          reporterName: user?.name || "Anónimo",
+          reporterEmail: user?.email || "",
+          reason: reportReason,
+          details: reportText
+        })
+      }).catch(e => console.debug("API report sync:", e));
     } catch (err) {
       console.error("Error saving report:", err);
     }
@@ -405,6 +422,9 @@ const Anuncio = () => {
 
   const handleShare = async () => {
     try {
+      if (!listing) return;
+      const listingShareUrl = getListingUrl(listing.id, listing.title);
+
       // Record global platform analytics share event
       recordPlatformShare();
       // Record listing specific analytics share click
@@ -414,10 +434,10 @@ const Anuncio = () => {
         await navigator.share({
           title: listing.title,
           text: `Olha este anúncio no Aqkianda: ${listing.title}`,
-          url: window.location.href,
+          url: listingShareUrl,
         });
       } else {
-        await navigator.clipboard.writeText(window.location.href);
+        await copyUrlToClipboard(listingShareUrl);
         setIsShared(true);
         toast({ title: "Link copiado!", description: "O link foi copiado para a área de transferência." });
         setTimeout(() => setIsShared(false), 2000);
@@ -529,6 +549,33 @@ const Anuncio = () => {
               <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
                 {listing.description}
               </p>
+
+              {/* Listing Tags / Keywords */}
+              {listing.tags && (Array.isArray(listing.tags) ? listing.tags.length > 0 : Boolean(listing.tags)) && (
+                <div className="pt-4 border-t border-border/20 space-y-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <Tag className="h-3.5 w-3.5 text-primary" /> Tags & Palavras-chave
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(Array.isArray(listing.tags) 
+                      ? listing.tags 
+                      : String(listing.tags).split(",")
+                    ).map((tagItem: string, idx: number) => {
+                      const clean = tagItem.trim().replace(/^#+/, "");
+                      if (!clean) return null;
+                      return (
+                        <Link
+                          key={idx}
+                          to={`/explorar?q=${encodeURIComponent(clean)}`}
+                          className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/20 hover:bg-primary hover:text-white transition-all shadow-xs"
+                        >
+                          #{clean}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Price & Contact (Mobile Only) */}

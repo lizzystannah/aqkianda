@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { listings, categories, formatPrice } from "@/data/listings";
+import { listings, categories, formatPrice, matchesListingSearch } from "@/data/listings";
 
 const heroBgImage = "https://images.unsplash.com/photo-1556742049-0cfed2f2a5d2?auto=format&fit=crop&w=1920&q=80";
 
@@ -53,8 +53,8 @@ const TemplateAlibabaV3 = () => {
     const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
 
     const filteredListings = useMemo(() => {
-        let filtered = listings.filter(item => {
-            const matchesSearch = !searchQuery || item.title.toLowerCase().includes(searchQuery.toLowerCase());
+        const filtered = listings.filter(item => {
+            const matchesSearch = !searchQuery.trim() || matchesListingSearch(item, searchQuery.trim());
             const matchesCategory = selectedCategory === "all" || item.categoryId === selectedCategory;
             const matchesPrice = selectedPriceRange === null ||
                 (item.price >= priceRanges[selectedPriceRange].min && item.price < priceRanges[selectedPriceRange].max);
@@ -64,19 +64,14 @@ const TemplateAlibabaV3 = () => {
 
         switch (sortBy) {
             case "price-asc":
-                filtered.sort((a, b) => a.price - b.price);
-                break;
+                return [...filtered].sort((a, b) => a.price - b.price);
             case "price-desc":
-                filtered.sort((a, b) => b.price - a.price);
-                break;
+                return [...filtered].sort((a, b) => b.price - a.price);
             case "rating":
-                filtered.sort((a, b) => b.rating - a.rating);
-                break;
+                return [...filtered].sort((a, b) => b.rating - a.rating);
             default:
-                break;
+                return filtered;
         }
-
-        return filtered;
     }, [searchQuery, selectedCategory, selectedPriceRange, selectedLocation, sortBy]);
 
     const clearFilters = () => {

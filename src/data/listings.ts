@@ -6,6 +6,7 @@ export type Listing = {
   condition: "novo" | "usado";
   location: string;
   image: string;
+  images?: string[];
   featured: boolean;
   rating: number;
   categoryId: string;
@@ -15,6 +16,7 @@ export type Listing = {
   phone: string;
   sellerEmail?: string;
   sellerId?: string;
+  tags?: string[];
   promoEventId?: string;
   promoDiscount?: number;
   promoPrice?: number;
@@ -29,6 +31,66 @@ export type Category = {
 export const formatPrice = (price: number, currency: string = "AOA") => {
   return new Intl.NumberFormat('pt-AO', { style: 'currency', currency: currency || 'AOA' }).format(price);
 };
+
+// ==============================================================
+// SEARCH NORMALIZATION UTILITIES
+// ==============================================================
+export function normalizeSearchText(text: string): string {
+  if (!text) return "";
+  return text
+    .toString()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // remove all accents: ténis -> tenis, calçado -> calcado, electrónica -> electronica, móveis -> moveis
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function matchesListingSearch(listing: Listing, query: string): boolean {
+  if (!query || !query.trim()) return true;
+
+  const normalizedQuery = normalizeSearchText(query);
+  const queryTokens = normalizedQuery.split(" ").filter((t) => t.length > 0);
+  if (queryTokens.length === 0) return true;
+
+  const tagsText = Array.isArray(listing.tags)
+    ? listing.tags.join(" ")
+    : typeof listing.tags === "string"
+    ? listing.tags
+    : "";
+
+  const categoryObj = categories.find(c => c.slug === listing.categoryId);
+  const categoryName = categoryObj ? categoryObj.name : "";
+
+  const corpus = normalizeSearchText(
+    `${listing.title} ${listing.description} ${tagsText} ${listing.categoryId} ${categoryName} ${listing.location} ${listing.condition} ${listing.seller}`
+  );
+
+  // Direct phrase match
+  if (corpus.includes(normalizedQuery)) return true;
+
+  // Multi-token match
+  return queryTokens.every((token) => {
+    if (corpus.includes(token)) return true;
+
+    // Plural to singular (e.g. sapatilhas -> sapatilha, carros -> carro, computadores -> computador, tenis -> teni)
+    if (token.endsWith("s") && token.length > 3 && corpus.includes(token.slice(0, -1))) {
+      return true;
+    }
+    if (token.endsWith("es") && token.length > 4 && corpus.includes(token.slice(0, -2))) {
+      return true;
+    }
+    if (token.endsWith("is") && token.length > 4 && corpus.includes(token.slice(0, -2) + "l")) {
+      return true;
+    }
+    // Singular to plural (e.g. token: sapatilha, corpus: sapatilhas)
+    if (corpus.includes(token + "s") || corpus.includes(token + "es")) {
+      return true;
+    }
+    return false;
+  });
+}
 
 export const categories: Category[] = [
   { slug: "eletronica", name: "Electrónica", icon: "Smartphone" },
@@ -74,7 +136,10 @@ export const listings: Listing[] = [
     categoryId: "eletronica",
     description: "iPhone 13 Pro Max em excelente estado, com 256GB de memória. Bateria a 100%. Inclui caixa e acessórios originais.",
     postedAt: "Há 2 horas",
-    seller: "João Manuel"
+    seller: "João Manuel",
+    phone: "923 111 222",
+    sellerEmail: "joao.manuel@exemplo.ao",
+    tags: ["telemovel", "celular", "smartphone", "apple", "ios", "iphone", "telefone"]
   },
   {
     id: "2",
@@ -89,7 +154,10 @@ export const listings: Listing[] = [
     categoryId: "viaturas",
     description: "Toyota Hilux 2020, tração 4x4, motor a diesel. Apenas 45.000km rodados. Manutenções sempre em dia na marca.",
     postedAt: "Há 5 horas",
-    seller: "Kalandula Motors"
+    seller: "Kalandula Motors",
+    phone: "912 333 444",
+    sellerEmail: "kalandula@motors.ao",
+    tags: ["carro", "carrinha", "pickup", "pick up", "4x4", "diesel", "toyota", "viatura", "automovel"]
   },
   {
     id: "3",
@@ -104,7 +172,10 @@ export const listings: Listing[] = [
     categoryId: "imoveis",
     description: "Apartamento T3 no Kilamba, Bloco W. Cozinha equipada, quartos com roupeiros e sala ampla. Pronto a habitar.",
     postedAt: "Ontem",
-    seller: "Imobiliária Futuro"
+    seller: "Imobiliária Futuro",
+    phone: "931 555 666",
+    sellerEmail: "geral@imobiliariafuturo.ao",
+    tags: ["casa", "apartamento", "imovel", "moradia", "residencia", "t3", "arrendamento", "venda"]
   },
   {
     id: "4",
@@ -119,7 +190,10 @@ export const listings: Listing[] = [
     categoryId: "moda",
     description: "Ténis Nike Air Max novos, nunca usados. Disponíveis em vários tamanhos. Entrega imediata em Luanda.",
     postedAt: "Há 1 dia",
-    seller: "Fashion Store"
+    seller: "Fashion Store",
+    phone: "945 777 888",
+    sellerEmail: "vendas@fashionstore.ao",
+    tags: ["tenis", "sapatilha", "sapatilhas", "calcado", "calcados", "sapato", "nike", "air max", "moda", "desporto"]
   },
   {
     id: "5",
@@ -134,7 +208,10 @@ export const listings: Listing[] = [
     categoryId: "moveis",
     description: "Sofá em L de couro sintético, cor cinza escuro. 3 lugares + chaise longue. Almofadas incluídas. Entrega ao domicílio em Luanda.",
     postedAt: "Há 3 horas",
-    seller: "MóveisPlus"
+    seller: "MóveisPlus",
+    phone: "928 999 000",
+    sellerEmail: "atendimento@moveisplus.ao",
+    tags: ["sofa", "mobilia", "sala", "moveis", "decoracao", "couro", "casa"]
   },
   {
     id: "6",
@@ -149,7 +226,10 @@ export const listings: Listing[] = [
     categoryId: "desporto",
     description: "Bicicleta de montanha com câmbio Shimano 21 velocidades. Quadro em alumínio, pneus novos. Ideal para trilhos e cidade.",
     postedAt: "Há 6 horas",
-    seller: "Pedro Esportes"
+    seller: "Pedro Esportes",
+    phone: "991 222 333",
+    sellerEmail: "pedro@esportes.ao",
+    tags: ["bike", "bicicleta", "ciclismo", "desporto", "shimano", "trilha"]
   },
   {
     id: "7",
@@ -164,7 +244,10 @@ export const listings: Listing[] = [
     categoryId: "empregos",
     description: "Empresa de tecnologia em Luanda procura programador full-stack com experiência em React e Node.js. Regime híbrido, salário competitivo.",
     postedAt: "Hoje",
-    seller: "TechAngola"
+    seller: "TechAngola",
+    phone: "922 444 555",
+    sellerEmail: "rh@techangola.ao",
+    tags: ["emprego", "trabalho", "vaga", "ti", "software", "programador", "developer", "react", "nodejs"]
   },
   {
     id: "8",
@@ -179,7 +262,10 @@ export const listings: Listing[] = [
     categoryId: "servicos",
     description: "Serviço de electricista certificado, disponível 24 horas. Instalações, reparações e manutenções. Orçamento gratuito.",
     postedAt: "Há 4 horas",
-    seller: "ElectroServiços"
+    seller: "ElectroServiços",
+    phone: "933 666 777",
+    sellerEmail: "contacto@electroservicos.ao",
+    tags: ["eletricista", "electricista", "servico", "reparacao", "instalacao", "urgencia", "manutencao"]
   },
   {
     id: "9",
@@ -194,7 +280,9 @@ export const listings: Listing[] = [
     categoryId: "eletronica",
     description: "Samsung Galaxy S23 Ultra 256GB, em perfeito estado. Câmara 200MP, S Pen incluída. Sem riscos.",
     postedAt: "Há 8 horas",
-    seller: "Ana Correia"
+    seller: "Ana Correia",
+    phone: "927 444 333",
+    tags: ["telemovel", "celular", "smartphone", "samsung", "galaxy", "android", "s23"]
   },
   {
     id: "10",
@@ -209,7 +297,9 @@ export const listings: Listing[] = [
     categoryId: "viaturas",
     description: "Honda Civic 2019, caixa automática, 60.000 km. Interior em couro, câmara traseira, sensores de estacionamento.",
     postedAt: "Há 12 horas",
-    seller: "AutoLuanda"
+    seller: "AutoLuanda",
+    phone: "921 555 777",
+    tags: ["carro", "viatura", "automovel", "honda", "civic", "automatico"]
   },
   {
     id: "11",
@@ -224,7 +314,9 @@ export const listings: Listing[] = [
     categoryId: "moveis",
     description: "Mesa de jantar em madeira maciça com 6 cadeiras estofadas. Acabamento premium. Montagem incluída.",
     postedAt: "Há 1 dia",
-    seller: "Casa & Design"
+    seller: "Casa & Design",
+    phone: "935 222 444",
+    tags: ["mesa", "cadeiras", "jantar", "madeira", "mobilia", "moveis", "casa"]
   },
   {
     id: "12",
@@ -239,11 +331,47 @@ export const listings: Listing[] = [
     categoryId: "desporto",
     description: "Kit de halteres ajustáveis até 20kg cada. Material emborrachado, ideal para treino em casa. Novos na caixa.",
     postedAt: "Há 2 dias",
-    seller: "FitShop Angola"
+    seller: "FitShop Angola",
+    phone: "948 111 999",
+    tags: ["pesos", "musculacao", "fitness", "halteres", "treino", "ginasio", "desporto"]
   }
 ];
 
 // Apply dynamic getter to listings to allow Admin Pinning (afixar) and filter out removed listings on load
+export const fetchListingsFromApi = async (): Promise<Listing[]> => {
+  if (typeof window === "undefined" || !window.location || !window.location.origin) return listings;
+  try {
+    const res = await fetch("/api/listings");
+    if (res.ok) {
+      const serverListings: Listing[] = await res.json();
+      if (Array.isArray(serverListings) && serverListings.length > 0) {
+        // Merge with local pinned/promo mappings
+        const removedIds = JSON.parse(localStorage.getItem("aqkianda-removed-ids") || "[]");
+        const promoMappingsStr = localStorage.getItem("aqkianda-promotional-mappings");
+        const promoMappings = promoMappingsStr ? JSON.parse(promoMappingsStr) : {};
+
+        const activeList = serverListings.filter(l => !removedIds.includes(l.id)).map(l => {
+          if (promoMappings[l.id]) {
+            l.promoEventId = promoMappings[l.id].promoEventId;
+            l.promoDiscount = promoMappings[l.id].promoDiscount;
+            l.promoPrice = promoMappings[l.id].promoPrice;
+          }
+          return l;
+        });
+
+        listings.length = 0;
+        listings.push(...activeList);
+
+        window.dispatchEvent(new Event("aqkianda-listings-updated"));
+        return listings;
+      }
+    }
+  } catch (e) {
+    console.debug("Backend listings sync fallback to local store:", e);
+  }
+  return listings;
+};
+
 if (typeof window !== "undefined") {
   try {
     // 1. Load any custom listings created by users
@@ -277,6 +405,9 @@ if (typeof window !== "undefined") {
         }
       });
     }
+
+    // 4. Initial server fetch
+    fetchListingsFromApi();
   } catch (err) {
     console.error("Error filtering or loading listings:", err);
   }

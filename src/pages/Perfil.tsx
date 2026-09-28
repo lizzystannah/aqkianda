@@ -6,11 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { listings, Listing, slugify } from "@/data/listings";
-import { Star, MapPin, Mail, Settings, Plus, Package, Heart, LogOut, Camera, ShieldCheck, Lock, Eye, Smartphone, KeyRound, Bell, EyeOff, Trash2, Edit, UserX } from "lucide-react";
+import { Star, MapPin, Mail, Settings, Plus, Package, Heart, LogOut, Camera, ShieldCheck, Lock, Eye, Smartphone, KeyRound, Bell, EyeOff, Trash2, Edit, UserX, Share2, Check } from "lucide-react";
 import { Link, useSearchParams, useParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
+import { useDocumentMetadata } from "@/hooks/useDocumentMetadata";
+import { getSellerPath, getSellerUrl, copyUrlToClipboard, getProfileUrl } from "@/config/urls";
 
 interface PromoCampaign {
   id: string;
@@ -69,6 +71,33 @@ const Perfil = () => {
   const [selectedListingId, setSelectedListingId] = useState("");
   const [selectedPromoId, setSelectedPromoId] = useState("");
   const [selectedDiscount, setSelectedDiscount] = useState<number>(20);
+  const [isProfileShared, setIsProfileShared] = useState(false);
+
+  useDocumentMetadata({
+    title: user?.name ? `Perfil de ${user.name}` : "Meu Perfil",
+    description: "Faz a gestão dos teus anúncios, favoritos e mensagens no Aqkianda.",
+    url: user?.name ? getProfileUrl(user.name, activeTab) : undefined,
+  });
+
+  const handleShareProfile = async () => {
+    const publicUrl = getSellerUrl(user?.name || "Utilizador");
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `Perfil de ${user?.name || "Vendedor"} no Aqkianda`,
+          text: `Confira a minha loja e anúncios no Aqkianda:`,
+          url: publicUrl,
+        });
+      } catch (e) {
+        console.debug("Share canceled", e);
+      }
+    } else {
+      await copyUrlToClipboard(publicUrl);
+      setIsProfileShared(true);
+      toast({ title: "Link do perfil copiado!", description: "O link foi copiado para a área de transferência." });
+      setTimeout(() => setIsProfileShared(false), 2000);
+    }
+  };
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -441,8 +470,18 @@ const Perfil = () => {
                     <Plus className="h-5 w-5 mr-2" /> Publicar Novo Anúncio
                   </Button>
                 </Link>
-                <Button variant="outline" className="rounded-full bg-white/5 border-white/10 text-white hover:bg-white/10 h-12 px-8">
-                  Ver como público
+                <Link to={getSellerPath(user?.name || "Meu Perfil")}>
+                  <Button variant="outline" className="rounded-full bg-white/5 border-white/10 text-white hover:bg-white/10 h-12 px-6">
+                    Ver como público
+                  </Button>
+                </Link>
+                <Button 
+                  variant="outline" 
+                  onClick={handleShareProfile}
+                  className="rounded-full bg-white/10 border-white/20 text-white hover:bg-white/20 h-12 px-6 flex items-center gap-2"
+                >
+                  {isProfileShared ? <Check className="h-4 w-4 text-emerald-400" /> : <Share2 className="h-4 w-4" />}
+                  {isProfileShared ? "Link Copiado!" : "Partilhar Perfil"}
                 </Button>
               </div>
             </div>

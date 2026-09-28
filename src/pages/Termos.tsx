@@ -4,8 +4,14 @@ import Footer from "@/components/Footer";
 import { Shield, CheckCircle2, AlertTriangle, Info, ArrowLeft, Lock, Users, MessageCircle, ShieldAlert } from "lucide-react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
+import { useDocumentMetadata } from "@/hooks/useDocumentMetadata";
 
 const Termos = () => {
+  useDocumentMetadata({
+    title: "Termos & Segurança",
+    description: "Termos de serviço, privacidade e dicas de segurança para negociar com total confiança no Aqkianda.",
+  });
+
   return (
     <div className="min-h-screen bg-background">
       <Header />

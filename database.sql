@@ -190,7 +190,7 @@ ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
 
 -- Inserir Utilizador Administrador Principal
 INSERT INTO `users` (`id`, `name`, `email`, `password_hash`, `phone`, `role`, `location`) VALUES
-('admin-1', 'Administrador Aqkianda', 'elizangelomanuel@gmail.com', '$2b$10$e8Tj4R1y.L5H13/v6L7Jae2y1r0wG0oO/N/1m8Q9W', '923 000 000', 'admin', 'Luanda, Angola')
+('admin-1', 'Administrador Aqkianda', 'admin@aqkianda.com', '$2b$10$e8Tj4R1y.L5H13/v6L7Jae2y1r0wG0oO/N/1m8Q9W', '923 000 000', 'admin', 'Luanda, Angola')
 ON DUPLICATE KEY UPDATE `role` = 'admin';
 
 -- Inserir Slides Banners Iniciais

@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { getAbsoluteUrl } from "@/config/urls";
 
 export interface MetadataOptions {
   title?: string;
@@ -48,10 +49,17 @@ export function useDocumentMetadata(options: MetadataOptions) {
     updateMetaTag("property", "og:title", finalTitle);
     updateMetaTag("property", "og:description", options.description || DEFAULT_DESCRIPTION);
     updateMetaTag("property", "og:type", options.type || "website");
+    
     if (options.image) {
-      updateMetaTag("property", "og:image", options.image);
+      const finalImage = getAbsoluteUrl(options.image);
+      updateMetaTag("property", "og:image", finalImage);
+      updateMetaTag("name", "twitter:image", finalImage);
     }
-    const currentUrl = options.url || window.location.href;
+    
+    // Resolve absolute canonical & OG url via centralized URL architecture
+    const pathOrUrl = options.url || (typeof window !== "undefined" ? window.location.pathname + window.location.search : "/");
+    const currentUrl = getAbsoluteUrl(pathOrUrl);
+
     updateMetaTag("property", "og:url", currentUrl);
     updateLinkTag("canonical", currentUrl);
 
@@ -59,8 +67,5 @@ export function useDocumentMetadata(options: MetadataOptions) {
     updateMetaTag("name", "twitter:card", "summary_large_image");
     updateMetaTag("name", "twitter:title", finalTitle);
     updateMetaTag("name", "twitter:description", options.description || DEFAULT_DESCRIPTION);
-    if (options.image) {
-      updateMetaTag("name", "twitter:image", options.image);
-    }
   }, [options.title, options.description, options.image, options.url, options.type]);
 }

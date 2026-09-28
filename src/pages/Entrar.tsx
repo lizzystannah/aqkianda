@@ -2,19 +2,32 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { ArrowRight, Loader2, Clock, X, ArrowLeft } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { ArrowRight, Loader2, Clock, X, ArrowLeft, KeyRound, ShieldQuestion, CheckCircle2 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { useToast } from "@/hooks/use-toast";
 
 const Entrar = () => {
   const { login, openGoogleModal } = useAuth();
   const nav = useNavigate();
+  const { toast } = useToast();
   const [searchParams] = useSearchParams();
   const redirectTarget = searchParams.get("redirect") || "/";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  // Password Recovery with Security Question States
+  const [isForgotOpen, setIsForgotOpen] = useState(false);
+  const [forgotStep, setForgotStep] = useState<"identifier" | "answer" | "success">("identifier");
+  const [forgotIdentifier, setForgotIdentifier] = useState("");
+  const [securityQuestion, setSecurityQuestion] = useState("");
+  const [securityAnswer, setSecurityAnswer] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [isForgotLoading, setIsForgotLoading] = useState(false);
 
   const handleClose = () => {
     if (redirectTarget && redirectTarget !== "/" && redirectTarget !== "/entrar" && redirectTarget !== "/registar") {
@@ -26,13 +39,123 @@ const Entrar = () => {
     }
   };
 
+  // Step 1: Query backend for the security question
+  const handleFetchQuestion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotIdentifier.trim()) return;
+
+    setIsForgotLoading(true);
+    try {
+      const res = await fetch("/api/auth/forgot-password/question", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier: forgotIdentifier.trim() })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setSecurityQuestion(data.question);
+        setForgotStep("answer");
+      } else {
+        const err = await res.json();
+        toast({
+          variant: "destructive",
+          title: "Conta não encontrada",
+          description: err.error || "Não encontramos nenhuma conta com este email ou telefone."
+        });
+      }
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Erro de comunicação",
+        description: "Não foi possível verificar a conta no momento. Tenta novamente."
+      });
+    } finally {
+      setIsForgotLoading(false);
+    }
+  };
+
+  // Step 2: Submit answer and reset password
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!securityAnswer.trim() || !newPassword) return;
+
+    if (newPassword.length < 4) {
+      toast({
+        variant: "destructive",
+        title: "Palavra-passe curta",
+        description: "A nova palavra-passe deve ter pelo menos 4 caracteres."
+      });
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      toast({
+        variant: "destructive",
+        title: "Palavras-passe não coincidem",
+        description: "As palavras-passe introduzidas são diferentes."
+      });
+      return;
+    }
+
+    setIsForgotLoading(true);
+    try {
+      const res = await fetch("/api/auth/forgot-password/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          identifier: forgotIdentifier.trim(),
+          answer: securityAnswer.trim(),
+          newPassword
+        })
+      });
+
+      if (res.ok) {
+        setForgotStep("success");
+        toast({
+          title: "Palavra-passe redefinida! 🎉",
+          description: "Podes agora iniciar sessão com a tua nova palavra-passe."
+        });
+      } else {
+        const err = await res.json();
+        toast({
+          variant: "destructive",
+          title: "Resposta incorreta",
+          description: err.error || "A resposta de segurança está incorreta. Tenta novamente."
+        });
+      }
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao atualizar",
+        description: "Não foi possível atualizar a palavra-passe. Tenta novamente."
+      });
+    } finally {
+      setIsForgotLoading(false);
+    }
+  };
+
+  const handleFinishRecovery = () => {
+    setIsForgotOpen(false);
+    setEmail(forgotIdentifier);
+    setPassword("");
+    setForgotStep("identifier");
+    setForgotIdentifier("");
+    setSecurityAnswer("");
+    setNewPassword("");
+    setConfirmPassword("");
+  };
+
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) return;
 
     setIsLoading(true);
-    await login(email, password, redirectTarget);
+    const success = await login(email, password, redirectTarget);
     setIsLoading(false);
+    if (success) {
+      nav(redirectTarget || "/");
+    }
   };
 
   const handleGoogleLogin = () => {
@@ -145,7 +268,17 @@ const Entrar = () => {
               <div className="space-y-1.5">
                 <div className="flex justify-between items-center">
                   <Label htmlFor="pass" className="text-xs font-semibold text-gray-700 dark:text-gray-300">Palavra-passe</Label>
-                  <a href="#" className="text-[11px] font-semibold text-[#DC2626] hover:underline">Esqueceu a palavra-passe?</a>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForgotIdentifier(email);
+                      setIsForgotOpen(true);
+                      setForgotStep("identifier");
+                    }}
+                    className="text-[11px] font-semibold text-[#DC2626] hover:underline"
+                  >
+                    Esqueceu a palavra-passe?
+                  </button>
                 </div>
                 <Input
                   id="pass"
@@ -197,6 +330,154 @@ const Entrar = () => {
           </div>
         </div>
       </div>
+
+      {/* ========================================================== */}
+      {/* DIALOG DE RECUPERAÇÃO DE PALAVRA-PASSE POR PERGUNTA SECRETA */}
+      {/* ========================================================== */}
+      <Dialog open={isForgotOpen} onOpenChange={(open) => !open && setIsForgotOpen(false)}>
+        <DialogContent className="w-[92vw] max-w-md rounded-2xl sm:rounded-3xl p-6 bg-card border border-border/60 shadow-2xl">
+          <DialogHeader className="text-center space-y-2">
+            <div className="mx-auto h-12 w-12 rounded-2xl bg-red-500/10 text-red-600 dark:text-red-500 flex items-center justify-center mb-1">
+              <KeyRound className="h-6 w-6" />
+            </div>
+            <DialogTitle className="font-display font-bold text-xl tracking-tight text-foreground">
+              Recuperar Palavra-passe
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              {forgotStep === "identifier" && "Introduz o teu email ou telefone de registo para aceder à tua pergunta de segurança."}
+              {forgotStep === "answer" && "Responde à tua pergunta de segurança para criar uma nova palavra-passe."}
+              {forgotStep === "success" && "A tua palavra-passe foi atualizada com sucesso!"}
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* STEP 1: IDENTIFIER */}
+          {forgotStep === "identifier" && (
+            <form onSubmit={handleFetchQuestion} className="space-y-4 mt-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="forgot-id" className="text-xs font-semibold text-foreground">Email ou Telefone</Label>
+                <Input
+                  id="forgot-id"
+                  required
+                  value={forgotIdentifier}
+                  onChange={(e) => setForgotIdentifier(e.target.value)}
+                  disabled={isForgotLoading}
+                  placeholder="Ex: tu@exemplo.com ou 923 000 000"
+                  className="h-11 rounded-xl text-xs bg-muted/30"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsForgotOpen(false)}
+                  className="flex-1 h-11 rounded-xl text-xs font-semibold"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={isForgotLoading || !forgotIdentifier.trim()}
+                  className="flex-1 h-11 rounded-xl bg-primary text-primary-foreground text-xs font-semibold"
+                >
+                  {isForgotLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Continuar"}
+                </Button>
+              </div>
+            </form>
+          )}
+
+          {/* STEP 2: ANSWER SECURITY QUESTION & SET NEW PASSWORD */}
+          {forgotStep === "answer" && (
+            <form onSubmit={handleResetPassword} className="space-y-3.5 mt-2">
+              <div className="bg-primary/5 border border-primary/20 rounded-xl p-3 text-xs space-y-1">
+                <div className="flex items-center gap-1.5 text-primary font-semibold">
+                  <ShieldQuestion className="h-4 w-4 shrink-0" />
+                  <span>Pergunta de Segurança:</span>
+                </div>
+                <p className="text-foreground font-medium pl-5">{securityQuestion}</p>
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="sec-answer" className="text-xs font-semibold text-foreground">A tua Resposta Secreta</Label>
+                <Input
+                  id="sec-answer"
+                  required
+                  value={securityAnswer}
+                  onChange={(e) => setSecurityAnswer(e.target.value)}
+                  disabled={isForgotLoading}
+                  placeholder="Digita a tua resposta..."
+                  className="h-10 text-xs rounded-xl bg-muted/30"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="new-pass" className="text-xs font-semibold text-foreground">Nova Palavra-passe</Label>
+                <Input
+                  id="new-pass"
+                  type="password"
+                  required
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  disabled={isForgotLoading}
+                  placeholder="Mínimo 4 caracteres"
+                  className="h-10 text-xs rounded-xl bg-muted/30"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="confirm-pass" className="text-xs font-semibold text-foreground">Confirmar Nova Palavra-passe</Label>
+                <Input
+                  id="confirm-pass"
+                  type="password"
+                  required
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  disabled={isForgotLoading}
+                  placeholder="Repete a palavra-passe"
+                  className="h-10 text-xs rounded-xl bg-muted/30"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setForgotStep("identifier")}
+                  className="flex-1 h-11 rounded-xl text-xs font-semibold"
+                >
+                  Voltar
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={isForgotLoading || !securityAnswer.trim() || !newPassword}
+                  className="flex-1 h-11 rounded-xl bg-primary text-primary-foreground text-xs font-semibold"
+                >
+                  {isForgotLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Redefinir Palavra-passe"}
+                </Button>
+              </div>
+            </form>
+          )}
+
+          {/* STEP 3: SUCCESS */}
+          {forgotStep === "success" && (
+            <div className="text-center space-y-4 mt-2">
+              <div className="mx-auto h-12 w-12 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                <CheckCircle2 className="h-7 w-7" />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                A tua palavra-passe foi redefinida com sucesso. Podes agora entrar com as tuas novas credenciais.
+              </p>
+              <Button
+                type="button"
+                onClick={handleFinishRecovery}
+                className="w-full h-11 rounded-xl bg-primary text-primary-foreground text-xs font-semibold"
+              >
+                Voltar ao Login
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

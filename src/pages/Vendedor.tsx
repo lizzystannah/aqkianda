@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Star, ShieldCheck, MapPin, ArrowLeft, Package, Calendar, MessageCircle } from "lucide-react";
+import { Star, ShieldCheck, MapPin, ArrowLeft, Package, Calendar, MessageCircle, Share2, Check } from "lucide-react";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ListingCard from "@/components/ListingCard";
@@ -8,15 +9,46 @@ import { Button } from "@/components/ui/button";
 import { listings } from "@/data/listings";
 import { useRatings } from "@/context/RatingsContext";
 import { useAuth } from "@/context/AuthContext";
+import { useDocumentMetadata } from "@/hooks/useDocumentMetadata";
+import { useToast } from "@/hooks/use-toast";
+import { getSellerUrl, copyUrlToClipboard } from "@/config/urls";
 
 const Vendedor = () => {
   const { name } = useParams();
   const navigate = useNavigate();
+  const { toast } = useToast();
   const { getSellerRating } = useRatings();
   const { isAuthenticated, openAuthModal } = useAuth();
+  const [isShared, setIsShared] = useState(false);
   const sellerName = decodeURIComponent(name || "");
 
   const sellerListings = listings.filter((l) => l.seller.toLowerCase() === sellerName.toLowerCase());
+
+  useDocumentMetadata({
+    title: sellerName ? `Perfil de ${sellerName}` : "Vendedor",
+    description: sellerName ? `Vê todos os ${sellerListings.length} artigos e avaliações de ${sellerName} no Aqkianda.` : undefined,
+    url: sellerName ? getSellerUrl(sellerName) : undefined,
+  });
+
+  const handleShareSeller = async () => {
+    const url = getSellerUrl(sellerName);
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `Perfil de ${sellerName} no Aqkianda`,
+          text: `Confira a loja e os artigos de ${sellerName} no Aqkianda:`,
+          url,
+        });
+      } catch (e) {
+        console.debug("Share canceled", e);
+      }
+    } else {
+      await copyUrlToClipboard(url);
+      setIsShared(true);
+      toast({ title: "Link do perfil copiado!", description: "O link foi copiado para a área de transferência." });
+      setTimeout(() => setIsShared(false), 2000);
+    }
+  };
 
   if (sellerListings.length === 0) {
     return (
@@ -105,7 +137,7 @@ const Vendedor = () => {
               </div>
             </div>
 
-            {/* Right side: Seller stats & Send Message Button */}
+            {/* Right side: Seller stats & Action Buttons */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
               <Button
                 onClick={() => {
@@ -118,6 +150,15 @@ const Vendedor = () => {
                 className="h-11 bg-primary hover:bg-primary/90 text-white font-bold px-6 rounded-xl shadow-md flex items-center justify-center gap-2"
               >
                 <MessageCircle className="h-4 w-4" /> Enviar Mensagem
+              </Button>
+
+              <Button
+                variant="outline"
+                onClick={handleShareSeller}
+                className="h-11 border-border/70 hover:bg-accent font-semibold px-4 rounded-xl flex items-center justify-center gap-2"
+              >
+                {isShared ? <Check className="h-4 w-4 text-emerald-500" /> : <Share2 className="h-4 w-4" />}
+                {isShared ? "Link Copiado!" : "Partilhar Loja"}
               </Button>
 
               <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-xs md:text-sm text-muted-foreground bg-muted/30 p-4 rounded-xl border border-border/20">

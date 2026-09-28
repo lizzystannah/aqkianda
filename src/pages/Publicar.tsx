@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { categories, getCategories, Listing } from "@/data/listings";
-import { Upload, ImagePlus, ArrowRight, X, CheckCircle2, AlertCircle, Edit, Trash2, Sparkles, Check, Percent, Calendar } from "lucide-react";
+import { Upload, ImagePlus, ArrowRight, X, CheckCircle2, AlertCircle, Edit, Trash2, Sparkles, Check, Percent, Calendar, Tag, Plus, Hash } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
@@ -63,6 +63,8 @@ const Publicar = () => {
   const [price, setPrice] = useState("");
   const [loc, setLoc] = useState("");
   const [desc, setDesc] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
   const [isPromoted, setIsPromoted] = useState(false);
 
   // Campaign promotion states
@@ -104,6 +106,18 @@ const Publicar = () => {
         setLoc(item.location);
         setDesc(item.description);
         setIsPromoted(item.featured);
+        
+        if (item.tags && Array.isArray(item.tags)) {
+          setTags(item.tags);
+        } else if (item.tags && typeof item.tags === "string") {
+          try {
+            setTags(JSON.parse(item.tags));
+          } catch (_) {
+            setTags((item.tags as string).split(",").map(t => t.trim()));
+          }
+        } else {
+          setTags([]);
+        }
 
         // Check if there are active promotional mappings for this listing
         try {
@@ -129,11 +143,86 @@ const Publicar = () => {
     }
   }, [id, isEditing]);
 
+  const getCategoryTagSuggestions = (categorySlug: string): string[] => {
+    switch (categorySlug) {
+      case "moda":
+        return ["Ténis", "Calçado", "Sapatilhas", "Nike", "Adidas", "Vestido", "Camisa", "Original", "Confortável"];
+      case "eletronica":
+        return ["Smartphone", "iPhone", "Samsung", "Computador", "Portátil", "Telemóvel", "Gamer", "Garantia", "Novo"];
+      case "viaturas":
+        return ["Toyota", "Carro", "Gasolina", "Diesel", "Automático", "Manual", "SUV", "4x4", "Económico"];
+      case "imoveis":
+        return ["Apartamento", "Moradia", "T2", "T3", "Condomínio", "Luanda", "Talatona", "Água 24h", "Segurança"];
+      case "moveis":
+        return ["Sofá", "Mesa", "Cama", "Madeira", "Decoração", "Sala", "Quarto", "Moderna"];
+      case "desporto":
+        return ["Futebol", "Fitness", "Halteres", "Bicicleta", "Ginásio", "Treino", "Desporto"];
+      case "empregos":
+        return ["Vaga", "Recrutamento", "Full-time", "Part-time", "Luanda", "Urgente", "Experiência"];
+      case "servicos":
+        return ["Reparação", "Técnico", "Construção", "Instalação", "Transporte", "Eventos", "Profissional"];
+      default:
+        return ["Oferta", "Qualidade", "Novo", "Promoção", "Original", "Luanda"];
+    }
+  };
+
+  const handleAddTag = (newTag: string) => {
+    const cleanTag = newTag.trim().replace(/^#+/, "").replace(/[,]/g, "");
+    if (!cleanTag) return;
+    if (tags.length >= 10) {
+      toast({
+        title: "Limite atingido",
+        description: "Podes adicionar até 10 tags por anúncio.",
+        variant: "destructive"
+      });
+      return;
+    }
+    if (tags.some(t => t.toLowerCase() === cleanTag.toLowerCase())) {
+      setTagInput("");
+      return;
+    }
+    setTags(prev => [...prev, cleanTag]);
+    setTagInput("");
+  };
+
+  const handleRemoveTag = (indexToRemove: number) => {
+    setTags(prev => prev.filter((_, i) => i !== indexToRemove));
+  };
+
+  const handleTagKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      handleAddTag(tagInput);
+    }
+  };
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files) {
-      const newImages = Array.from(files).map(file => URL.createObjectURL(file));
-      setImages(prev => [...prev, ...newImages].slice(0, 8));
+      Array.from(files).slice(0, 8).forEach(file => {
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+          const base64 = reader.result as string;
+          try {
+            const res = await fetch("/api/upload", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ image: base64, name: file.name })
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.url) {
+                setImages(prev => [...prev, data.url].slice(0, 8));
+                return;
+              }
+            }
+          } catch (err) {
+            console.debug("Upload fallback:", err);
+          }
+          setImages(prev => [...prev, base64].slice(0, 8));
+        };
+        reader.readAsDataURL(file);
+      });
     }
   };
 
@@ -173,6 +262,8 @@ const Publicar = () => {
     setPrice("");
     setLoc("");
     setDesc("");
+    setTags([]);
+    setTagInput("");
     setImages([]);
     setCat("");
     setStep(1);
@@ -225,6 +316,7 @@ const Publicar = () => {
         rating: 5.0,
         categoryId: cat,
         description: desc,
+        tags: tags,
         postedAt: "Hoje",
         seller: sellerName,
         phone: sellerPhone,
@@ -267,12 +359,32 @@ const Publicar = () => {
       }
       localStorage.setItem("aqkianda-custom-listings", JSON.stringify(customListings));
       
-      // Also update running list in-memory
+      // Also update running list in-memory and dispatch update
       const existingIdx = listings.findIndex(l => l.id === newListing.id);
       if (existingIdx !== -1) {
         listings[existingIdx] = newListing;
       } else {
-        listings.push(newListing);
+        listings.unshift(newListing);
+      }
+      window.dispatchEvent(new Event("aqkianda-listings-updated"));
+
+      // Sync with backend MySQL API
+      try {
+        if (isEditing && id) {
+          await fetch(`/api/listings/${id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(newListing)
+          });
+        } else {
+          await fetch("/api/listings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(newListing)
+          });
+        }
+      } catch (apiErr) {
+        console.debug("Backend listing sync:", apiErr);
       }
     } catch (err) {
       console.error("Error saving custom listing:", err);
@@ -479,6 +591,92 @@ const Publicar = () => {
                         placeholder="Descreve o estado, acessórios incluídos e outros detalhes importantes..." 
                         className="mt-2 rounded-2xl bg-muted/30 border-transparent focus:bg-background focus:border-primary/20 resize-none" 
                       />
+                    </div>
+
+                    {/* Tags & Keywords Section */}
+                    <div className="space-y-3 pt-4 border-t border-border/20">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-foreground">
+                          <Tag className="h-3.5 w-3.5 text-primary" /> Tags & Palavras-chave de Pesquisa
+                        </Label>
+                        <span className="text-[11px] text-muted-foreground font-medium">
+                          {tags.length}/10 tags
+                        </span>
+                      </div>
+                      
+                      <p className="text-xs text-muted-foreground leading-normal">
+                        Adiciona palavras-chave para o teu anúncio ser encontrado facilmente nas pesquisas (ex: ténis, calçado, sapatilha, nike, 4x4, apartamento, etc.).
+                      </p>
+
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <Hash className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            value={tagInput}
+                            onChange={(e) => setTagInput(e.target.value)}
+                            onKeyDown={handleTagKeyDown}
+                            placeholder="Escreve uma tag e prime Enter..."
+                            className="pl-9 h-11 rounded-xl bg-muted/30 border-transparent focus:bg-background focus:border-primary/20 text-sm"
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => handleAddTag(tagInput)}
+                          disabled={!tagInput.trim()}
+                          className="h-11 px-4 rounded-xl text-xs font-bold gap-1 shrink-0"
+                        >
+                          <Plus className="h-3.5 w-3.5" /> Adicionar
+                        </Button>
+                      </div>
+
+                      {/* Active Tags Badge List */}
+                      {tags.length > 0 && (
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          {tags.map((t, idx) => (
+                            <span
+                              key={idx}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-primary/10 text-primary border border-primary/20 text-xs font-semibold animate-in fade-in"
+                            >
+                              #{t}
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveTag(idx)}
+                                className="hover:bg-primary/20 rounded-full p-0.5 transition-colors ml-0.5"
+                                title={`Remover ${t}`}
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Quick Suggestions based on selected category */}
+                      <div className="pt-2">
+                        <span className="text-[11px] font-semibold text-muted-foreground block mb-2">
+                          Sugestões rápidas para esta categoria:
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {getCategoryTagSuggestions(cat || "geral").map((sug) => {
+                            const isSelected = tags.some(t => t.toLowerCase() === sug.toLowerCase());
+                            return (
+                              <button
+                                key={sug}
+                                type="button"
+                                onClick={() => isSelected ? handleRemoveTag(tags.findIndex(t => t.toLowerCase() === sug.toLowerCase())) : handleAddTag(sug)}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                                  isSelected 
+                                    ? "bg-primary text-primary-foreground border-primary font-bold shadow-xs" 
+                                    : "bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground border-transparent"
+                                }`}
+                              >
+                                {isSelected ? `✓ #${sug}` : `+ #${sug}`}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>

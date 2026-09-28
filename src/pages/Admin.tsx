@@ -17,20 +17,11 @@ import { listings, formatPrice, Listing, slugify, Category, getCategories, saveC
 import { getListingAnalyticsMap, getListingStats } from "@/utils/analytics";
 import { useToast } from "@/hooks/use-toast";
 import { useRatings } from "@/context/RatingsContext";
-import { ADMIN_EMAIL } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-
-// Standard mock seed users if localStorage is empty
-const SEED_USERS = [
-  { id: "u-1", name: "João Manuel", email: "joao.manuel@email.ao", phone: "923 456 789", registeredAt: "12/05/2026", avatar: "JM" },
-  { id: "u-2", name: "Kalandula Motors", email: "kalandula.motors@email.ao", phone: "931 987 654", registeredAt: "20/04/2026", avatar: "KM" },
-  { id: "u-3", name: "Imobiliária Futuro", email: "contacto@imobfuturo.ao", phone: "922 112 233", registeredAt: "15/03/2026", avatar: "IF" },
-  { id: "u-4", name: "Fashion Store", email: "suporte@fashionstore.ao", phone: "914 555 666", registeredAt: "02/06/2026", avatar: "FS" },
-  { id: "u-5", name: "MóveisPlus", email: "vendas@moveisplus.ao", phone: "945 888 999", registeredAt: "18/05/2026", avatar: "MP" },
-  { id: "u-6", name: "Ana Correia", email: "ana.correia@email.ao", phone: "927 444 333", registeredAt: "15/06/2026", avatar: "AC" },
-];
+import { useDocumentMetadata } from "@/hooks/useDocumentMetadata";
+import { getAppUrl } from "@/config/urls";
 
 // Standard mock seed reports if localStorage is empty
 const SEED_REPORTS = [
@@ -177,12 +168,12 @@ const Admin = () => {
 
   // Load Admin Data from localStorage on mount
   useEffect(() => {
-    // Check user authorization
+    // Check user authorization (role === 'admin' verified from backend)
     const storedUser = localStorage.getItem("user");
     if (storedUser) {
       try {
         const parsed = JSON.parse(storedUser);
-        if (parsed && parsed.email && parsed.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+        if (parsed && parsed.role === "admin") {
           setIsAuthorized(true);
         } else {
           setIsAuthorized(false);
@@ -216,14 +207,15 @@ const Admin = () => {
       localStorage.setItem("aqkianda-reports", JSON.stringify(SEED_REPORTS));
     }
 
-    // 3. Registered Users
-    const savedUsers = localStorage.getItem("aqkianda-registered-users");
-    if (savedUsers) {
-      setRegisteredUsers(JSON.parse(savedUsers));
-    } else {
-      setRegisteredUsers(SEED_USERS);
-      localStorage.setItem("aqkianda-registered-users", JSON.stringify(SEED_USERS));
-    }
+    // 3. Registered Users from Backend API
+    fetch("/api/admin/users")
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setRegisteredUsers(data);
+        }
+      })
+      .catch(err => console.debug("Error loading admin users from API:", err));
 
     // 4. Slideshow banners
     const savedSlides = localStorage.getItem("aqkianda-slideshow-banners");
@@ -799,6 +791,13 @@ const Admin = () => {
     );
   }
 
+  useDocumentMetadata({
+    title: "Painel de Controlo & Administração",
+    description: "Gestão completa de anúncios, vendedores, denúncias e métricas do Aqkianda.",
+  });
+
+  const appBaseUrl = getAppUrl();
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <Header />
@@ -821,12 +820,20 @@ const Admin = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="flex h-3 w-3 relative">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-            </span>
-            <span className="text-xs font-bold font-mono text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Modo Administrador Activo</span>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-card border border-border/60 text-xs text-muted-foreground shadow-sm">
+              <Globe className="h-3.5 w-3.5 text-primary" />
+              <span className="font-mono text-[11px] text-foreground font-semibold truncate max-w-[200px]" title={appBaseUrl}>
+                {appBaseUrl}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="flex h-3 w-3 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+              </span>
+              <span className="text-xs font-bold font-mono text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Modo Administrador Activo</span>
+            </div>
           </div>
         </div>
 

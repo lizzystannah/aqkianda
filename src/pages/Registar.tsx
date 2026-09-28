@@ -16,7 +16,17 @@ const Registar = () => {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [securityQuestion, setSecurityQuestion] = useState("Qual é a tua comida tradicional angolana favorita?");
+  const [securityAnswer, setSecurityAnswer] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  const SECURITY_QUESTIONS = [
+    "Qual é a tua comida tradicional angolana favorita?",
+    "Qual é o nome da tua escola primária ou colégio de infância?",
+    "Em que cidade ou município de Angola nasceste?",
+    "Qual é o nome do teu primeiro animal de estimação?",
+    "Qual é o apelido ou alcunha de infância?"
+  ];
 
   const handleClose = () => {
     if (redirectTarget && redirectTarget !== "/" && redirectTarget !== "/entrar" && redirectTarget !== "/registar") {
@@ -33,8 +43,19 @@ const Registar = () => {
     if (!name || !email || !password) return;
 
     setIsLoading(true);
-    await register(name, email, phone, password, redirectTarget);
+    const success = await register(
+      name, 
+      email, 
+      phone, 
+      password, 
+      redirectTarget, 
+      securityQuestion, 
+      securityAnswer
+    );
     setIsLoading(false);
+    if (success) {
+      nav(redirectTarget || "/");
+    }
   };
 
   const handleGoogleSignup = () => {
@@ -180,6 +201,43 @@ const Registar = () => {
                   placeholder="••••••••"
                   className="h-12 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900 focus-visible:bg-white dark:focus-visible:bg-gray-950 focus-visible:ring-red-500/20"
                 />
+              </div>
+
+              {/* Pergunta de Segurança para Recuperação Gratuita de Conta */}
+              <div className="pt-2 border-t border-gray-100 dark:border-gray-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="sec-q" className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                    Pergunta de Segurança <span className="text-[10px] text-muted-foreground font-normal">(Para recuperar a senha sem SMS)</span>
+                  </Label>
+                </div>
+                <select
+                  id="sec-q"
+                  value={securityQuestion}
+                  onChange={(e) => setSecurityQuestion(e.target.value)}
+                  disabled={isLoading}
+                  className="w-full h-11 px-3 text-xs rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-red-500/20 font-medium"
+                >
+                  {SECURITY_QUESTIONS.map((q, idx) => (
+                    <option key={idx} value={q}>{q}</option>
+                  ))}
+                </select>
+
+                <div className="space-y-1">
+                  <Label htmlFor="sec-ans" className="text-xs font-semibold text-gray-700 dark:text-gray-300">Resposta Secreta</Label>
+                  <Input
+                    id="sec-ans"
+                    type="text"
+                    required
+                    value={securityAnswer}
+                    onChange={(e) => setSecurityAnswer(e.target.value)}
+                    disabled={isLoading}
+                    placeholder="Ex: Funge de carne seca / Lobito / Max"
+                    className="h-11 text-xs rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900 focus-visible:bg-white dark:focus-visible:bg-gray-950 focus-visible:ring-red-500/20"
+                  />
+                  <p className="text-[10px] text-gray-400 dark:text-gray-500">
+                    Guarda bem esta resposta. Ela será usada se te esqueceres da palavra-passe.
+                  </p>
+                </div>
               </div>
 
               <Button

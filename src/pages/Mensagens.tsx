@@ -252,6 +252,27 @@ const Mensagens = () => {
 
     setConversationsList(updatedList);
     localStorage.setItem(getConvKey(), JSON.stringify(updatedList));
+
+    // Sync to backend MySQL API
+    try {
+      fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: active.id,
+          senderId: user?.id || "usr-guest",
+          senderName: user?.name || "Utilizador",
+          senderEmail: user?.email || "guest@aqkianda.ao",
+          productName: active.product || "Geral",
+          content: text.trim() || "[Imagem]",
+          image: attachedImage || undefined,
+          isFromBuyer: true
+        })
+      }).catch(err => console.debug("API message sync:", err));
+    } catch (e) {
+      console.debug("Backend chat sync:", e);
+    }
+
     setText("");
     setAttachedImage(null);
     if (fileInputRef.current) fileInputRef.current.value = "";

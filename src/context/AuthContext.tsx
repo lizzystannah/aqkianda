@@ -7,11 +7,13 @@ export interface User {
   name: string;
   email: string;
   phone?: string;
+  role?: "user" | "seller" | "admin";
   avatar?: string;
   authMethod?: "email" | "google";
   googleCreatedAt?: string;
   emailVerified?: boolean;
   province?: string;
+  securityQuestion?: string;
 }
 
 export interface RegisteredUserRecord {
@@ -19,14 +21,12 @@ export interface RegisteredUserRecord {
   name: string;
   email: string;
   phone: string;
-  password?: string;
   province?: string;
+  role?: string;
   registeredAt: string;
   avatar: string;
   authMethod: "email" | "google";
 }
-
-export const ADMIN_EMAIL = "elizangelomanuel@gmail.com";
 
 interface AuthContextType {
   user: User | null;
@@ -44,8 +44,16 @@ interface AuthContextType {
     customAccount?: { name: string; email: string; avatar?: string; phone?: string }
   ) => Promise<void>;
   login: (email: string, pass: string, redirectUrl?: string) => Promise<boolean>;
-  register: (name: string, email: string, phone: string, pass: string, redirectUrl?: string) => Promise<boolean>;
-  updateProfile: (data: { name?: string; phone?: string; province?: string; avatar?: string }) => void;
+  register: (
+    name: string,
+    email: string,
+    phone: string,
+    pass: string,
+    redirectUrl?: string,
+    securityQuestion?: string,
+    securityAnswer?: string
+  ) => Promise<boolean>;
+  updateProfile: (data: { name?: string; phone?: string; province?: string; avatar?: string; securityQuestion?: string; securityAnswer?: string }) => void;
   logout: () => void;
   verifyEmailAndCompleteProfile: (phone: string, province: string) => void;
   getDaysRemainingForProfile: () => number;
@@ -216,108 +224,76 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const login = async (email: string, pass: string, redirectUrl?: string): Promise<boolean> => {
+    if (!email || !pass) {
+      toast({
+        variant: "destructive",
+        title: "Campos obrigatórios",
+        description: "Por favor, introduz o teu e-mail e a tua palavra-passe.",
+      });
+      return false;
+    }
+
     const cleanEmail = email.trim().toLowerCase();
 
-    // Check registered users list for matching user profile and password
+    // 1. Autenticação estrita no Backend / MySQL
     try {
-      const usersList: RegisteredUserRecord[] = JSON.parse(
-        localStorage.getItem("aqkianda-registered-users") || "[]"
-      );
-      const found = usersList.find((u) => u.email.toLowerCase() === cleanEmail);
-
-      if (found) {
-        // If password was stored during registration and doesn't match
-        if (found.password && pass && found.password !== pass) {
-          toast({
-            variant: "destructive",
-            title: "Credenciais Inválidas",
-            description: "A palavra-passe inserida está incorreta. Tente novamente.",
-          });
-          return false;
-        }
-
-        const authenticatedUser: User = {
-          id: found.id,
-          name: found.name,
-          email: found.email,
-          phone: found.phone !== "Não informado" ? found.phone : undefined,
-          avatar: found.avatar || found.name.slice(0, 2).toUpperCase(),
-          province: found.province || "Luanda",
-          authMethod: found.authMethod || "email",
-          emailVerified: true
-        };
-
-        setUser(authenticatedUser);
-        toast({
-          title: "Sessão iniciada!",
-          description: `Bem-vindo de volta à tua conta, ${authenticatedUser.name}!`,
-        });
-
-        setIsAuthModalOpen(false);
-        const target = redirectUrl || authModalRedirect;
-        if (target) {
-          setAuthModalRedirect(null);
-          window.location.href = target;
-        }
-        return true;
-      }
-    } catch (e) {
-      console.error(e);
-    }
-
-    // If user not previously registered on this device, create their exclusive account
-    const derivedName = cleanEmail.split("@")[0].replace(/[._-]/g, " ");
-    const formattedName = derivedName
-      .split(" ")
-      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-      .join(" ");
-
-    const newUser: User = {
-      id: `usr-${Date.now()}`,
-      name: formattedName || "Utilizador",
-      email: cleanEmail,
-      avatar: (formattedName || "U").slice(0, 2).toUpperCase(),
-      authMethod: "email",
-      emailVerified: true,
-      province: "Luanda"
-    };
-
-    setUser(newUser);
-
-    // Save to registered list
-    try {
-      const usersList: RegisteredUserRecord[] = JSON.parse(
-        localStorage.getItem("aqkianda-registered-users") || "[]"
-      );
-      usersList.push({
-        id: newUser.id!,
-        name: newUser.name,
-        email: cleanEmail,
-        phone: "Não informado",
-        password: pass,
-        province: "Luanda",
-        registeredAt: new Date().toLocaleDateString("pt-AO"),
-        avatar: newUser.avatar!,
-        authMethod: "email"
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: cleanEmail, password: pass })
       });
-      localStorage.setItem("aqkianda-registered-users", JSON.stringify(usersList));
-    } catch (e) {
-      console.error(e);
+
+      if (res.status === 401) {
+        toast({
+          variant: "destructive",
+          title: "Palavra-passe incorreta",
+          description: "A palavra-passe inserida está incorreta. Tenta novamente.",
+        });
+        return false;
+      }
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.user) {
+          const authenticatedUser: User = {
+            id: data.user.id,
+            name: data.user.name,
+            email: data.user.email,
+            phone: data.user.phone || undefined,
+            role: data.user.role || "user",
+            avatar: data.user.avatar || (data.user.name || "AQ").slice(0, 2).toUpperCase(),
+            province: data.user.location || "Luanda",
+            securityQuestion: data.user.securityQuestion,
+            authMethod: "email",
+            emailVerified: true
+          };
+
+          setUser(authenticatedUser);
+          toast({
+            title: "Sessão iniciada!",
+            description: `Bem-vindo(a) de volta, ${authenticatedUser.name}!`,
+          });
+
+          setIsAuthModalOpen(false);
+          const target = redirectUrl || authModalRedirect;
+          if (target) {
+            setAuthModalRedirect(null);
+            window.location.href = target;
+          }
+          return true;
+        }
+      }
+    } catch (err) {
+      console.debug("Erro ao verificar autenticação no backend:", err);
     }
 
+    // 2. Bloquear utilizadores inexistentes
     toast({
-      title: "Sessão iniciada!",
-      description: `Bem-vindo à Aqkianda, ${newUser.name}!`,
+      variant: "destructive",
+      title: "Conta não encontrada",
+      description: "Não existe nenhuma conta registada com este endereço de e-mail. Por favor, cria uma conta antes de entrar.",
     });
-
-    setIsAuthModalOpen(false);
-    const target = redirectUrl || authModalRedirect;
-    if (target) {
-      setAuthModalRedirect(null);
-      window.location.href = target;
-    }
-
-    return true;
+    return false;
   };
 
   const register = async (
@@ -325,12 +301,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     email: string,
     phone: string,
     pass: string,
-    redirectUrl?: string
+    redirectUrl?: string,
+    securityQuestion?: string,
+    securityAnswer?: string
   ): Promise<boolean> => {
+    if (!name || !email || !pass) {
+      toast({
+        variant: "destructive",
+        title: "Campos obrigatórios",
+        description: "Por favor, preenche todos os campos obrigatórios.",
+      });
+      return false;
+    }
+
     const cleanEmail = email.trim().toLowerCase();
     const cleanName = name.trim();
     const cleanPhone = phone ? phone.trim() : "";
-
+    const newUserId = `usr-${Date.now()}`;
     const userAvatar = cleanName
       .split(" ")
       .map((n) => n[0])
@@ -338,72 +325,87 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .slice(0, 2)
       .toUpperCase() || "AO";
 
+    try {
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: newUserId,
+          name: cleanName,
+          email: cleanEmail,
+          phone: cleanPhone,
+          password: pass,
+          location: "Luanda, Angola",
+          securityQuestion: securityQuestion || "Qual é a tua comida tradicional angolana favorita?",
+          securityAnswer: securityAnswer || ""
+        })
+      });
+
+      if (res.status === 409) {
+        toast({
+          variant: "destructive",
+          title: "E-mail já registado",
+          description: "Já existe uma conta associada a este endereço de e-mail. Por favor, inicia sessão.",
+        });
+        return false;
+      }
+
+      if (res.ok) {
+        const data = await res.json();
+        const serverUser = data.user;
+        const newUser: User = {
+          id: serverUser?.id || newUserId,
+          name: serverUser?.name || cleanName,
+          email: serverUser?.email || cleanEmail,
+          phone: serverUser?.phone || cleanPhone,
+          role: serverUser?.role || "user",
+          avatar: serverUser?.avatar || userAvatar,
+          securityQuestion: serverUser?.securityQuestion || securityQuestion,
+          authMethod: "email",
+          emailVerified: true,
+          province: "Luanda"
+        };
+
+        recordPlatformSignup();
+        setUser(newUser);
+
+        toast({
+          title: "Conta criada com sucesso! 🎉",
+          description: `Bem-vindo(a) à tua nova conta na Aqkianda, ${newUser.name}!`,
+        });
+
+        setIsAuthModalOpen(false);
+
+        const target = redirectUrl || authModalRedirect;
+        if (target) {
+          setAuthModalRedirect(null);
+          window.location.href = target;
+        }
+
+        return true;
+      }
+    } catch (err) {
+      console.debug("Backend offline para registo:", err);
+    }
+
     const newUser: User = {
-      id: `usr-${Date.now()}`,
+      id: newUserId,
       name: cleanName,
       email: cleanEmail,
       phone: cleanPhone,
       avatar: userAvatar,
+      role: "user",
       authMethod: "email",
       emailVerified: true,
       province: "Luanda"
     };
 
     setUser(newUser);
-
-    // Sync to admin registered users list
-    try {
-      const usersList: RegisteredUserRecord[] = JSON.parse(
-        localStorage.getItem("aqkianda-registered-users") || "[]"
-      );
-      const existingIdx = usersList.findIndex(
-        (u) => u.email.toLowerCase() === cleanEmail
-      );
-      if (existingIdx >= 0) {
-        usersList[existingIdx].name = cleanName;
-        usersList[existingIdx].phone = cleanPhone || usersList[existingIdx].phone;
-        usersList[existingIdx].password = pass;
-        usersList[existingIdx].avatar = userAvatar;
-      } else {
-        recordPlatformSignup();
-        usersList.push({
-          id: newUser.id!,
-          name: cleanName,
-          email: cleanEmail,
-          phone: cleanPhone || "Não informado",
-          password: pass,
-          province: "Luanda",
-          registeredAt: new Date().toLocaleDateString("pt-AO"),
-          avatar: userAvatar,
-          authMethod: "email"
-        });
-      }
-      localStorage.setItem("aqkianda-registered-users", JSON.stringify(usersList));
-    } catch (e) {
-      console.error("Error saving user:", e);
-    }
-
-    // Try posting to backend API
-    try {
-      fetch("/api/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: newUser.id,
-          name: cleanName,
-          email: cleanEmail,
-          phone: cleanPhone,
-          password: pass,
-          location: "Luanda, Angola"
-        })
-      }).catch((e) => console.debug("API register sync:", e));
-    } catch (err) {
-      console.debug("Backend offline for register sync:", err);
-    }
+    recordPlatformSignup();
 
     toast({
       title: "Conta criada com sucesso! 🎉",
-      description: `Bem-vindo(a) à tua conta exclusiva Aqkianda, ${newUser.name}!`,
+      description: `Bem-vindo(a) à tua nova conta na Aqkianda, ${newUser.name}!`,
     });
 
     setIsAuthModalOpen(false);
@@ -417,7 +419,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return true;
   };
 
-  const updateProfile = (data: { name?: string; phone?: string; province?: string; avatar?: string }) => {
+  const updateProfile = (data: { name?: string; phone?: string; province?: string; avatar?: string; securityQuestion?: string; securityAnswer?: string }) => {
     if (!user) return;
 
     const updatedUser: User = {
@@ -425,27 +427,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ...(data.name && { name: data.name }),
       ...(data.phone !== undefined && { phone: data.phone }),
       ...(data.province && { province: data.province }),
-      ...(data.avatar && { avatar: data.avatar })
+      ...(data.avatar && { avatar: data.avatar }),
+      ...(data.securityQuestion && { securityQuestion: data.securityQuestion })
     };
 
     setUser(updatedUser);
-
-    // Update in registered users list
-    try {
-      const usersList: RegisteredUserRecord[] = JSON.parse(
-        localStorage.getItem("aqkianda-registered-users") || "[]"
-      );
-      const idx = usersList.findIndex((u) => u.email.toLowerCase() === user.email.toLowerCase());
-      if (idx >= 0) {
-        if (data.name) usersList[idx].name = data.name;
-        if (data.phone !== undefined) usersList[idx].phone = data.phone;
-        if (data.province) usersList[idx].province = data.province;
-        if (data.avatar) usersList[idx].avatar = data.avatar;
-        localStorage.setItem("aqkianda-registered-users", JSON.stringify(usersList));
-      }
-    } catch (e) {
-      console.error(e);
-    }
 
     // Sync to backend API
     try {
@@ -456,6 +442,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           email: user.email,
           name: data.name,
           phone: data.phone,
+          avatar: data.avatar,
+          securityQuestion: data.securityQuestion,
+          securityAnswer: data.securityAnswer,
           location: data.province ? `${data.province}, Angola` : undefined
         })
       }).catch((e) => console.debug("API profile update:", e));
@@ -487,7 +476,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   };
 
-  const isAdmin = !!user && user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+  const isAdmin = !!user && user.role === "admin";
 
   return (
     <AuthContext.Provider
