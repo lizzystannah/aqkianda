@@ -1,10 +1,10 @@
 import mysql from "mysql2/promise";
 
-const DB_HOST = process.env.DB_HOST || "localhost";
-const DB_PORT = Number(process.env.DB_PORT || "3306");
-const DB_USER = process.env.DB_USER || "root";
-const DB_PASSWORD = process.env.DB_PASSWORD || "";
-const DB_NAME = process.env.DB_NAME || "aqkianda_db";
+const DB_HOST = process.env.DB_HOST || process.env.MYSQL_HOST || "localhost";
+const DB_PORT = Number(process.env.DB_PORT || process.env.MYSQL_PORT || "3306");
+const DB_USER = process.env.DB_USER || process.env.MYSQL_USER || "root";
+const DB_PASSWORD = process.env.DB_PASSWORD ?? process.env.MYSQL_PASSWORD ?? process.env.MYSQL_ROOT_PASSWORD ?? "";
+const DB_NAME = (process.env.DB_NAME || process.env.MYSQL_DATABASE || process.env.DATABASE_NAME || "").trim();
 
 export let pool: mysql.Pool | null = null;
 export let isDbConnected = false;
@@ -70,16 +70,34 @@ export function generateSeedTrafficHistory(): DailyTrafficRecord[] {
 let inMemoryTraffic: DailyTrafficRecord[] = [];
 
 export async function initializeDatabase() {
-  // Check if env variables exist
-  if (!process.env.DB_HOST && !process.env.DB_USER && !process.env.DB_NAME) {
-    console.warn("⚠️ Sem variáveis de ambiente MySQL definidas (DB_HOST, DB_USER, DB_NAME). A usar persistência em memória para analytics.");
+  if (!DB_NAME) {
+    console.warn("⚠️ Nenhuma base de dados definida na variável de ambiente DB_NAME (ou MYSQL_DATABASE).");
+    console.warn("ℹ️ Para conectar ao MySQL, define o nome da tua base de dados no ficheiro .env (ex: DB_NAME=o_teu_banco).");
+    console.warn("⚠️ A utilizar modo de simulação em memória.");
     inMemoryTraffic = generateSeedTrafficHistory();
     isDbConnected = false;
     return;
   }
 
   try {
-    console.log(`🔌 A tentar ligar à base de dados MySQL em ${DB_HOST}:${DB_PORT}...`);
+    console.log(`🔌 A tentar ligar à base de dados MySQL '${DB_NAME}' em ${DB_HOST}:${DB_PORT}...`);
+
+    // Tentar primeiro verificar ou criar a base de dados se o utilizador tiver permissões
+    try {
+      const initConn = await mysql.createConnection({
+        host: DB_HOST,
+        port: DB_PORT,
+        user: DB_USER,
+        password: DB_PASSWORD,
+        connectTimeout: 5000
+      });
+      await initConn.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`);
+      await initConn.end();
+      console.log(`📦 Base de dados '${DB_NAME}' verificada com sucesso.`);
+    } catch {
+      // Ignorar se o utilizador não tiver privilégios globais de CREATE DATABASE
+    }
+
     pool = mysql.createPool({
       host: DB_HOST,
       port: DB_PORT,
@@ -138,6 +156,23 @@ export async function initializeDatabase() {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Erro desconhecido";
     console.error("❌ Falha na conexão ou inicialização do MySQL:", message || error);
+
+    if (message.includes("Access denied") && message.includes("to database")) {
+      console.error("\n=======================================================");
+      console.error("💡 DIAGNÓSTICO DE ACESSO AO MYSQL:");
+      console.error(`O utilizador '${DB_USER}' não tem permissões para aceder à base de dados '${DB_NAME}'.`);
+      console.error("Para resolver este problema rapidamente:");
+      console.error("\nOpção 1 (Recomendada): Entrar no MySQL como ROOT e conceder privilégios:");
+      console.error(`  docker exec -it quantterm_mysql mysql -u root -p`);
+      console.error(`  CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`;`);
+      console.error(`  GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'%';`);
+      console.error("  FLUSH PRIVILEGES;");
+      console.error("\nOpção 2: Configurar o seu ficheiro .env para usar o utilizador 'root':");
+      console.error(`  DB_USER=root`);
+      console.error(`  DB_PASSWORD=<palavra_passe_root_do_mysql>`);
+      console.error("=======================================================\n");
+    }
+
     console.warn("⚠️ A reverter para o modo de simulação em memória.");
     inMemoryTraffic = generateSeedTrafficHistory();
     isDbConnected = false;
