@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useDocumentMetadata } from "@/hooks/useDocumentMetadata";
 import { getAppUrl } from "@/config/urls";
+import { compressImage } from "@/utils/imageCompression";
 
 // Standard mock seed reports if localStorage is empty
 const SEED_REPORTS = [
@@ -332,20 +333,39 @@ const Admin = () => {
     });
   };
 
-  // Handle uploading banner image from computer
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle uploading banner image from computer with gentle compression
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast({ variant: "destructive", title: "Ficheiro muito grande", description: "A imagem deve ter no máximo 5MB." });
-        return;
+      try {
+        toast({ title: "A processar imagem... ⏳", description: "Otimizando imagem para exibição rápida." });
+        const compressed = await compressImage(file, { maxDimension: 1920, quality: 0.88 });
+        if (!compressed) return;
+
+        try {
+          const res = await fetch("/api/upload", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image: compressed, name: file.name })
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.url) {
+              setBannerImage(data.url);
+              toast({ title: "Imagem carregada! 📷", description: "Imagem comprimida e guardada no Cloudflare R2 com sucesso." });
+              return;
+            }
+          }
+        } catch (uploadErr) {
+          console.debug("Banner upload fallback:", uploadErr);
+        }
+
+        setBannerImage(compressed);
+        toast({ title: "Imagem pronta! 📷", description: "Imagem comprimida e pronta para o banner." });
+      } catch (err) {
+        console.error("Erro ao comprimir banner:", err);
+        toast({ variant: "destructive", title: "Erro na imagem", description: "Não foi possível processar o ficheiro." });
       }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setBannerImage(reader.result as string);
-        toast({ title: "Imagem carregada! 📷", description: "Imagem do computador selecionada com sucesso." });
-      };
-      reader.readAsDataURL(file);
     }
   };
 

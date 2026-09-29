@@ -6,6 +6,7 @@ import { Send, Search, ArrowLeft, Image as ImageIcon, X, Paperclip, ZoomIn, Lock
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
+import { compressImage } from "@/utils/imageCompression";
 
 type Msg = { 
   from: "me" | "them"; 
@@ -195,18 +196,34 @@ const Mensagens = () => {
     setMobileActiveView("chat");
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 8 * 1024 * 1024) {
-        alert("A imagem deve ter no máximo 8MB.");
-        return;
+      try {
+        const compressed = await compressImage(file, { maxDimension: 1200, quality: 0.82 });
+        if (!compressed) return;
+
+        try {
+          const res = await fetch("/api/upload", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image: compressed, name: file.name })
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.url) {
+              setAttachedImage(data.url);
+              return;
+            }
+          }
+        } catch (uploadErr) {
+          console.debug("Chat image upload fallback:", uploadErr);
+        }
+
+        setAttachedImage(compressed);
+      } catch (err) {
+        console.error("Erro ao comprimir imagem de mensagem:", err);
       }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setAttachedImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
     }
   };
 

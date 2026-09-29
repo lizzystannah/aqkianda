@@ -14,6 +14,7 @@ import { listings } from "@/data/listings";
 import { useDocumentMetadata } from "@/hooks/useDocumentMetadata";
 import ListingCard from "@/components/ListingCard";
 import { useAuth } from "@/context/AuthContext";
+import { compressImage } from "@/utils/imageCompression";
 
 interface PromoCampaign {
   id: string;
@@ -199,15 +200,17 @@ const Publicar = () => {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files) {
-      Array.from(files).slice(0, 8).forEach(file => {
-        const reader = new FileReader();
-        reader.onloadend = async () => {
-          const base64 = reader.result as string;
+      Array.from(files).slice(0, 8).forEach(async (file) => {
+        try {
+          // Compressão suave antes do envio (máx 1600px, 85% qualidade)
+          const compressedBase64 = await compressImage(file, { maxDimension: 1600, quality: 0.85 });
+          if (!compressedBase64) return;
+
           try {
             const res = await fetch("/api/upload", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ image: base64, name: file.name })
+              body: JSON.stringify({ image: compressedBase64, name: file.name })
             });
             if (res.ok) {
               const data = await res.json();
@@ -219,9 +222,10 @@ const Publicar = () => {
           } catch (err) {
             console.debug("Upload fallback:", err);
           }
-          setImages(prev => [...prev, base64].slice(0, 8));
-        };
-        reader.readAsDataURL(file);
+          setImages(prev => [...prev, compressedBase64].slice(0, 8));
+        } catch (err) {
+          console.error("Erro na compressão/upload:", err);
+        }
       });
     }
   };

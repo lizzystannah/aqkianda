@@ -1,38 +1,34 @@
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import path from "path";
 import fs from "fs";
 
-// Dynamic Cloudflare R2 Helper Configuration
+/**
+ * CONFIGURAÇÃO ORGANIZADA DO CLOUDFLARE R2
+ */
 export function getR2Config() {
-  const secretKey = process.env.R2_SECRET_ACCESS_KEY || process.env.R2_SECRET_KEY || process.env.CLOUDFLARE_R2_SECRET || "";
-  const accessKey = process.env.R2_ACCESS_KEY_ID || process.env.R2_ACCESS_KEY || process.env.R2_KEY_ID || "";
-  const bucket = process.env.R2_BUCKET_NAME || process.env.R2_BUCKET || process.env.BUCKET_NAME || process.env.CLOUDFLARE_R2_BUCKET || "";
-  const accountId = process.env.R2_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || "";
-  const publicDomain = (process.env.R2_PUBLIC_DOMAIN || process.env.R2_CUSTOM_DOMAIN || "").replace(/\/+$/, "");
-  
-  // Custom Endpoint URL support (ex: https://<ACCOUNT_ID>.r2.cloudflarestorage.com or https://<ACCOUNT_ID>.eu.r2.cloudflarestorage.com)
-  let endpoint = process.env.R2_ENDPOINT || process.env.S3_ENDPOINT || "";
-  if (!endpoint && accountId) {
-    endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
-  }
+  const accessKey = (process.env.R2_ACCESS_KEY_ID || process.env.ACCESS_KEY_ID || "").trim();
+  const secretKey = (process.env.R2_SECRET_ACCESS_KEY || process.env.SECRET_ACCESS_KEY || "").trim();
+  const endpoint = (process.env.R2_ENDPOINT || process.env.S3_ENDPOINT || process.env.ENDPOINT || "").trim();
+  const bucket = (process.env.R2_BUCKET_NAME || process.env.BUCKET_NAME || process.env.R2_BUCKET || "").trim();
+  const publicDomain = (process.env.R2_PUBLIC_DOMAIN || process.env.PUBLIC_DOMAIN || "").trim().replace(/\/+$/, "");
 
-  return { secretKey, accessKey, bucket, accountId, publicDomain, endpoint };
+  return { accessKey, secretKey, endpoint, bucket, publicDomain };
 }
 
 export function isR2Configured(): boolean {
-  const { secretKey, accessKey, bucket, endpoint } = getR2Config();
-  return Boolean(secretKey && accessKey && bucket && endpoint);
+  const { accessKey, secretKey, endpoint, bucket } = getR2Config();
+  return Boolean(accessKey && secretKey && endpoint && bucket);
 }
 
 let s3ClientInstance: S3Client | null = null;
-let lastEndpoint = "";
+let cachedEndpoint = "";
 
 function getS3Client(): S3Client | null {
   if (!isR2Configured()) return null;
-  const { secretKey, accessKey, endpoint } = getR2Config();
+  const { accessKey, secretKey, endpoint } = getR2Config();
 
-  if (!s3ClientInstance || lastEndpoint !== endpoint) {
-    lastEndpoint = endpoint;
+  if (!s3ClientInstance || cachedEndpoint !== endpoint) {
+    cachedEndpoint = endpoint;
     s3ClientInstance = new S3Client({
       region: "auto",
       endpoint,
@@ -53,20 +49,44 @@ export interface UploadResult {
 }
 
 /**
- * Uploads an image (base64 string or Buffer) to Cloudflare R2.
- * Falls back to local disk storage if R2 is not configured or fails.
+ * Obtém o fluxo/stream de um objeto do Cloudflare R2 usando autenticação S3.
+ * Utilizado pelo servidor para servir imagens quando R2_PUBLIC_DOMAIN não estiver ativado.
+ */
+export async function getR2ObjectStream(key: string) {
+  const s3 = getS3Client();
+  const config = getR2Config();
+  if (!s3 || !config.bucket) return null;
+
+  try {
+    const command = new GetObjectCommand({
+      Bucket: config.bucket,
+      Key: key,
+    });
+    const response = await s3.send(command);
+    return {
+      stream: response.Body,
+      contentType: response.ContentType || "image/jpeg",
+    };
+  } catch (err) {
+    console.error(`❌ Erro ao obter objeto R2 '${key}':`, err);
+    return null;
+  }
+}
+
+/**
+ * Envia uma imagem para o Cloudflare R2 ou reverte para armazenamento local em disco.
  */
 export async function uploadImageToStorage(
   imageInput: string,
   uploadsDir: string,
   preferredFilename?: string
 ): Promise<UploadResult> {
-  // If already a hosted URL (HTTP/HTTPS) or relative path, return directly
+  // Se já for uma URL pública mantida (HTTP/HTTPS) ou caminho relativo
   if (imageInput.startsWith("http://") || imageInput.startsWith("https://") || imageInput.startsWith("/uploads/")) {
     return { url: imageInput, storage: imageInput.startsWith("http") ? "r2" : "local", success: true };
   }
 
-  // Parse base64 data
+  // Processar dados Base64 da imagem
   let buffer: Buffer;
   let contentType = "image/jpeg";
   let ext = "jpg";
@@ -87,10 +107,9 @@ export async function uploadImageToStorage(
 
   const filename = preferredFilename || `img_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
   const config = getR2Config();
-
-  // Try Cloudflare R2 upload if configured
   const s3 = getS3Client();
-  if (s3) {
+
+  if (s3 && config.bucket) {
     try {
       const key = `uploads/${filename}`;
       const command = new PutObjectCommand({
@@ -102,12 +121,13 @@ export async function uploadImageToStorage(
 
       await s3.send(command);
 
-      // Construct public URL
+      // Gerar URL pública permanente
       let publicUrl = "";
       if (config.publicDomain) {
         publicUrl = `${config.publicDomain}/${key}`;
       } else {
-        publicUrl = `${config.endpoint}/${config.bucket}/${key}`;
+        // Se R2_PUBLIC_DOMAIN não estiver definido, usa o proxy do servidor Express
+        publicUrl = `/api/r2-file/${key}`;
       }
 
       console.log(`☁️ Imagem enviada com sucesso para Cloudflare R2: ${publicUrl}`);
@@ -117,10 +137,10 @@ export async function uploadImageToStorage(
       console.error("❌ Erro no upload para Cloudflare R2, a reverter para disco local:", errMsg);
     }
   } else {
-    console.warn("⚠️ Cloudflare R2 incompleto no .env. Requisitos: R2_SECRET_ACCESS_KEY, R2_ENDPOINT ou R2_ACCOUNT_ID, e R2_BUCKET_NAME.");
+    console.warn("⚠️ Cloudflare R2 não totalmente configurado. Requisitos no .env: R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ENDPOINT, R2_BUCKET_NAME");
   }
 
-  // Fallback to local disk storage
+  // Armazenamento local de reserva (Fallback)
   if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
   }
@@ -130,19 +150,23 @@ export async function uploadImageToStorage(
   return { url: `/uploads/${filename}`, storage: "local", success: true };
 }
 
+/**
+ * Rota de Diagnóstico em Tempo Real (/api/test-r2)
+ */
 export async function testR2Upload(): Promise<{ success: boolean; message: string; details: Record<string, string> }> {
   const config = getR2Config();
   const details = {
-    hasAccessKeyId: config.accessKey ? `sim (${config.accessKey.length} chars)` : "não (recomenda-se 32 chars)",
-    hasSecretAccessKey: config.secretKey ? `sim (${config.secretKey.length} chars)` : "não (recomenda-se 64 chars)",
-    bucket: config.bucket || "não definido no .env (R2_BUCKET_NAME)",
-    endpoint: config.endpoint || "não definido no .env (R2_ENDPOINT ou R2_ACCOUNT_ID)"
+    R2_ACCESS_KEY_ID: config.accessKey ? `Definido (${config.accessKey.length} caracteres)` : "❌ Faltando",
+    R2_SECRET_ACCESS_KEY: config.secretKey ? `Definido (${config.secretKey.length} caracteres)` : "❌ Faltando",
+    R2_ENDPOINT: config.endpoint ? config.endpoint : "❌ Faltando",
+    R2_BUCKET_NAME: config.bucket ? config.bucket : "❌ Faltando",
+    R2_PUBLIC_DOMAIN: config.publicDomain ? config.publicDomain : "(Desativado - a usar proxy interno /api/r2-file/)"
   };
 
   if (!config.accessKey) {
     return {
       success: false,
-      message: "Falta definir o R2_ACCESS_KEY_ID no .env (o Access Key ID de 32 caracteres gerado no Cloudflare R2).",
+      message: "Falta a variável R2_ACCESS_KEY_ID no .env (o Access Key ID de 32 caracteres do ecrã do R2).",
       details
     };
   }
@@ -150,15 +174,7 @@ export async function testR2Upload(): Promise<{ success: boolean; message: strin
   if (!config.secretKey) {
     return {
       success: false,
-      message: "Falta definir o R2_SECRET_ACCESS_KEY no .env (o Secret Access Key de 64 caracteres gerado no Cloudflare R2).",
-      details
-    };
-  }
-
-  if (!config.bucket) {
-    return {
-      success: false,
-      message: "Falta definir o R2_BUCKET_NAME no .env com o nome do teu Bucket no Cloudflare.",
+      message: "Falta a variável R2_SECRET_ACCESS_KEY no .env (o Secret Access Key de 64 caracteres do ecrã do R2).",
       details
     };
   }
@@ -166,7 +182,15 @@ export async function testR2Upload(): Promise<{ success: boolean; message: strin
   if (!config.endpoint) {
     return {
       success: false,
-      message: "Falta definir o R2_ENDPOINT no .env (ex: R2_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com ou R2_ACCOUNT_ID).",
+      message: "Falta a variável R2_ENDPOINT no .env (o URL fornecido no ecrã do R2: https://<ACCOUNT_ID>.r2.cloudflarestorage.com).",
+      details
+    };
+  }
+
+  if (!config.bucket) {
+    return {
+      success: false,
+      message: "Falta a variável R2_BUCKET_NAME no .env (o nome do Bucket que criaste no Cloudflare R2).",
       details
     };
   }
@@ -193,18 +217,18 @@ export async function testR2Upload(): Promise<{ success: boolean; message: strin
 
     const publicUrl = config.publicDomain 
       ? `${config.publicDomain}/${testKey}`
-      : `${config.endpoint}/${config.bucket}/${testKey}`;
+      : `/api/r2-file/${testKey}`;
 
     return {
       success: true,
-      message: `Conexão ao Cloudflare R2 efetuada com SUCESSO! Ficheiro de teste gravado no R2: ${publicUrl}`,
+      message: `🎉 Conexão ao Cloudflare R2 efetuada com SUCESSO! Ficheiro de teste gravado no R2: ${publicUrl}`,
       details
     };
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     return {
       success: false,
-      message: `Erro na chamada de teste ao Cloudflare R2: ${errMsg}`,
+      message: `❌ Erro na comunicação com a API do Cloudflare R2: ${errMsg}`,
       details
     };
   }

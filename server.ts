@@ -34,7 +34,7 @@ import {
   getAdminPassword,
   isAdminEmail
 } from "./server/db.js";
-import { uploadImageToStorage, isR2Configured, testR2Upload } from "./server/r2.js";
+import { uploadImageToStorage, isR2Configured, testR2Upload, getR2ObjectStream } from "./server/r2.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -140,6 +140,37 @@ async function startServer() {
   app.get("/api/test-r2", async (req, res) => {
     const result = await testR2Upload();
     res.status(result.success ? 200 : 400).json(result);
+  });
+
+  // Serve R2 files directly via backend proxy if public domain is not configured
+  app.get(/^\/api\/r2-file\/(.+)$/, async (req, res) => {
+    try {
+      const paramMap = req.params as unknown as Record<string, string | undefined>;
+      const rawKey = paramMap[0] || req.path.replace(/^\/api\/r2-file\//, "");
+      const key = decodeURIComponent(rawKey);
+      if (!key) return res.status(400).send("File key missing");
+
+      const fileData = await getR2ObjectStream(key);
+      if (!fileData || !fileData.stream) {
+        return res.status(404).send("File not found in R2");
+      }
+
+      res.setHeader("Content-Type", fileData.contentType);
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+
+      const stream = fileData.stream as unknown as { pipe?: (res: unknown) => void; transformToByteArray?: () => Promise<Uint8Array> };
+      if (typeof stream.pipe === "function") {
+        stream.pipe(res);
+      } else if (typeof stream.transformToByteArray === "function") {
+        const bytes = await stream.transformToByteArray();
+        res.send(Buffer.from(bytes));
+      } else {
+        res.send(fileData.stream);
+      }
+    } catch (error) {
+      console.error("Error serving R2 file:", error);
+      res.status(500).send("Error fetching R2 file");
+    }
   });
 
   // Dynamic XML Sitemap for SEO and search indexing using centralized APP_URL
