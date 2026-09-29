@@ -26,6 +26,8 @@ import { getAppUrl } from "@/config/urls";
 import { compressImage } from "@/utils/imageCompression";
 
 // Standard mock seed reports if localStorage is empty
+const ADMIN_EMAILS = ["admin@aqkianda.com", "admin@aqkianda.ao"];
+
 const SEED_USERS = [
   {
     id: "usr-1",
@@ -267,21 +269,17 @@ const Admin = () => {
   }, [filteredTraffic, rawTrafficHistory, analyticsRange]);
 
   // Admin authentication states
-  const { isAdmin, isAuthenticated, user, login } = useAuth();
+  const { isAdmin, user, login } = useAuth();
   const [adminAuthEmail, setAdminAuthEmail] = useState("admin@aqkianda.com");
   const [adminAuthPassword, setAdminAuthPassword] = useState("");
   const [isAdminLoggingIn, setIsAdminLoggingIn] = useState(false);
-  const [forceAuthorized, setForceAuthorized] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("aqkianda_is_admin") === "true";
-  });
 
+  // Acesso restrito à conta root/admin: role atribuído pelo backend apenas
+  // para emails em ADMIN_EMAIL (server/db.ts isAdminEmail)
   const isUserAdmin = Boolean(
-    isAuthenticated ||
-    isAdmin || 
-    user ||
-    (typeof window !== "undefined" && (localStorage.getItem("user") !== null || localStorage.getItem("aqkianda-jwt-token") !== null)) ||
-    forceAuthorized
+    isAdmin ||
+    user?.role === "admin" ||
+    (user?.email && ADMIN_EMAILS.includes(user.email.toLowerCase()))
   );
 
   const handleAdminPasscodeSubmit = async (e: React.FormEvent) => {
@@ -291,9 +289,18 @@ const Admin = () => {
       const cleanEmail = adminAuthEmail.trim().toLowerCase();
       // Autenticação estrita via servidor backend (POST /api/auth/login)
       const success = await login(cleanEmail, adminAuthPassword);
-      if (success) {
-        localStorage.setItem("aqkianda_is_admin", "true");
-        setForceAuthorized(true);
+      if (!success) {
+        toast({
+          variant: "destructive",
+          title: "Credenciais incorretas",
+          description: "O e-mail ou a palavra-passe de administrador introduzida está incorreta.",
+        });
+        return;
+      }
+
+      // Confirma permissões de admin no backend (requireAdmin -> 403 para contas comuns)
+      const probe = await fetch("/api/admin/users", { headers: getAuthHeaders() });
+      if (probe.ok) {
         toast({
           title: "Painel do Administrador Desbloqueado! 🛡️",
           description: "Bem-vindo ao Painel de Controlo do Aqkianda.",
@@ -301,8 +308,8 @@ const Admin = () => {
       } else {
         toast({
           variant: "destructive",
-          title: "Credenciais incorretas",
-          description: "O e-mail ou a palavra-passe de administrador introduzida está incorreta.",
+          title: "Sem permissões de administrador",
+          description: "Esta conta não tem acesso à administração da Aqkianda.",
         });
       }
     } catch (err) {
