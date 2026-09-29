@@ -34,6 +34,7 @@ import {
   getAdminPassword,
   isAdminEmail
 } from "./server/db.js";
+import { uploadImageToStorage, isR2Configured, testR2Upload } from "./server/r2.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -131,8 +132,14 @@ async function startServer() {
       appUrl: getBackendBaseUrl(req),
       timestamp: new Date().toISOString(),
       environment: process.env.NODE_ENV || "development",
-      mysql: isDbConnected ? "connected" : "fallback_mode"
+      mysql: isDbConnected ? "connected" : "fallback_mode",
+      r2Storage: isR2Configured() ? "active" : "not_configured"
     });
+  });
+
+  app.get("/api/test-r2", async (req, res) => {
+    const result = await testR2Upload();
+    res.status(result.success ? 200 : 400).json(result);
   });
 
   // Dynamic XML Sitemap for SEO and search indexing using centralized APP_URL
@@ -279,33 +286,17 @@ async function startServer() {
   });
 
   // ==========================================================
-  // REAL IMAGE UPLOADER (GRAVAÇÃO LOCAL EM DISCO / SERVIDOR)
+  // REAL IMAGE UPLOADER (CLOUDFLARE R2 PERSISTENCE WITH LOCAL FALLBACK)
   // ==========================================================
-  app.post("/api/upload", (req, res) => {
+  app.post("/api/upload", async (req, res) => {
     try {
       const { image, name } = req.body;
       if (!image) {
         return res.status(400).json({ error: "Nenhuma imagem fornecida" });
       }
 
-      // If already a hosted URL, pass through
-      if (image.startsWith("http://") || image.startsWith("https://") || image.startsWith("/uploads/")) {
-        return res.json({ url: image, success: true });
-      }
-
-      const match = image.match(/^data:image\/([a-zA-Z0-9.+]+);base64,(.+)$/);
-      if (match) {
-        const rawExt = match[1].toLowerCase();
-        const ext = rawExt === "jpeg" ? "jpg" : rawExt.includes("png") ? "png" : rawExt.includes("webp") ? "webp" : "jpg";
-        const data = match[2];
-        const buffer = Buffer.from(data, "base64");
-        const filename = `img_${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
-        const filePath = path.join(uploadsDir, filename);
-        fs.writeFileSync(filePath, buffer);
-        return res.json({ url: `/uploads/${filename}`, success: true });
-      }
-
-      return res.status(400).json({ error: "Formato de imagem inválido" });
+      const result = await uploadImageToStorage(image, uploadsDir);
+      res.json(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Erro desconhecido";
       res.status(500).json({ error: "Erro ao processar upload", message });
