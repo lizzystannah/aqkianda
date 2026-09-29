@@ -144,7 +144,7 @@ const getTodayDateString = (): string => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
-// Generate high-fidelity seed data for the last 30 days to populate immediate visualization
+// Generate 0-baseline traffic structure for past 30 days to record purely real events
 const generateSeedTrafficHistory = (): DailyTrafficRecord[] => {
   const list: DailyTrafficRecord[] = [];
   const baseDate = new Date();
@@ -154,35 +154,17 @@ const generateSeedTrafficHistory = (): DailyTrafficRecord[] => {
     d.setDate(baseDate.getDate() - i);
     const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     
-    // Simulate growth: progressive increase in views & interactions
-    const dayOfWeek = d.getDay();
-    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-    const growthFactor = 1 + (29 - i) * 0.04; // ~4% growth per day
-    const baseViews = isWeekend ? 180 : 260; // More traffic on weekdays
-    const viewsTotal = Math.floor(baseViews * growthFactor + Math.random() * 40);
-    const viewsNew = Math.floor(viewsTotal * 0.68); // ~68% are new visitors
-    const viewsRegistered = viewsTotal - viewsNew;
-    
-    const shares = Math.floor(viewsTotal * 0.12 + Math.random() * 5); // 12% sharing rate
-    const signups = Math.floor(viewsTotal * 0.05 + Math.random() * 3); // 5% registration rate
-    
-    // Split sources logically
-    const direct = Math.floor(viewsTotal * 0.35);
-    const search = Math.floor(viewsTotal * 0.30);
-    const shareLink = Math.floor(viewsTotal * 0.15);
-    const whatsapp = viewsTotal - (direct + search + shareLink);
-    
     list.push({
       date: dateStr,
-      viewsTotal,
-      viewsNew,
-      viewsRegistered,
-      shares,
-      signups,
-      direct,
-      search,
-      shareLink,
-      whatsapp,
+      viewsTotal: 0,
+      viewsNew: 0,
+      viewsRegistered: 0,
+      shares: 0,
+      signups: 0,
+      direct: 0,
+      search: 0,
+      shareLink: 0,
+      whatsapp: 0,
     });
   }
   return list;

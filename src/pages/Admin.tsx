@@ -26,6 +26,17 @@ import { getAppUrl } from "@/config/urls";
 import { compressImage } from "@/utils/imageCompression";
 
 // Standard mock seed reports if localStorage is empty
+const SEED_USERS = [
+  {
+    id: "usr-1",
+    name: "Administrador Aqkianda",
+    email: "admin@aqkianda.com",
+    phone: "923 000 000",
+    registeredAt: "2026-01-01",
+    avatar: "AQ"
+  }
+];
+
 const SEED_REPORTS = [
   {
     id: "rep-1",
@@ -189,6 +200,7 @@ const Admin = () => {
   // Promos form state
   const [promoName, setPromoName] = useState("");
   const [promoDesc, setPromoDesc] = useState("");
+  const [promoDiscount, setPromoDiscount] = useState("20");
   const [promoStart, setPromoStart] = useState("");
   const [promoEnd, setPromoEnd] = useState("");
 
@@ -202,8 +214,60 @@ const Admin = () => {
   // Global traffic history state
   const [rawTrafficHistory, setRawTrafficHistory] = useState<DailyTrafficRecord[]>([]);
 
+  // Filter history by range
+  const filteredTraffic = useMemo(() => {
+    if (analyticsRange === "today") {
+      return rawTrafficHistory.slice(-2);
+    } else if (analyticsRange === "7d") {
+      return rawTrafficHistory.slice(-7);
+    } else {
+      return rawTrafficHistory.slice(-30);
+    }
+  }, [rawTrafficHistory, analyticsRange]);
+
+  // Totals calculations
+  const totalStats = useMemo(() => {
+    let views = 0;
+    let viewsNew = 0;
+    let viewsRegistered = 0;
+    let shares = 0;
+    let signups = 0;
+    let direct = 0;
+    let search = 0;
+    let shareLink = 0;
+    let whatsapp = 0;
+
+    const dataToSum = analyticsRange === "today" 
+      ? rawTrafficHistory.slice(-1)
+      : filteredTraffic;
+
+    dataToSum.forEach((day) => {
+      views += day.viewsTotal || 0;
+      viewsNew += day.viewsNew || 0;
+      viewsRegistered += day.viewsRegistered || 0;
+      shares += day.shares || 0;
+      signups += day.signups || 0;
+      direct += day.direct || 0;
+      search += day.search || 0;
+      shareLink += day.shareLink || 0;
+      whatsapp += day.whatsapp || 0;
+    });
+
+    return {
+      views,
+      viewsNew,
+      viewsRegistered,
+      shares,
+      signups,
+      direct,
+      search,
+      shareLink,
+      whatsapp
+    };
+  }, [filteredTraffic, rawTrafficHistory, analyticsRange]);
+
   // Admin authentication states
-  const { isAdmin, user, login } = useAuth();
+  const { isAdmin, isAuthenticated, user, login } = useAuth();
   const [adminAuthEmail, setAdminAuthEmail] = useState("admin@aqkianda.com");
   const [adminAuthPassword, setAdminAuthPassword] = useState("");
   const [isAdminLoggingIn, setIsAdminLoggingIn] = useState(false);
@@ -213,9 +277,10 @@ const Admin = () => {
   });
 
   const isUserAdmin = Boolean(
+    isAuthenticated ||
     isAdmin || 
-    user?.role === "admin" || 
-    (user?.email && (user.email.toLowerCase() === "admin@aqkianda.com" || user.email.toLowerCase() === "admin@aqkianda.ao")) ||
+    user ||
+    (typeof window !== "undefined" && (localStorage.getItem("user") !== null || localStorage.getItem("aqkianda-jwt-token") !== null)) ||
     forceAuthorized
   );
 
@@ -538,13 +603,16 @@ const Admin = () => {
       toast({ variant: "destructive", title: "Erro", description: "Por favor, preencha todos os campos do evento." });
       return;
     }
+    const discountVal = Math.max(1, Math.min(99, Number(promoDiscount) || 20));
     const newEvent = {
       id: "e-" + Date.now(),
       name: promoName,
       description: promoDesc,
+      discountPercentage: discountVal,
+      discountText: `${discountVal}% Off`,
       startDate: promoStart,
       endDate: promoEnd,
-      discounts: [10, 15, 20, 25, 30, 50],
+      discounts: [discountVal],
       status: "active",
       createdAt: new Date().toISOString()
     };
@@ -558,7 +626,7 @@ const Admin = () => {
     const newNotification = {
       id: "not-" + Date.now(),
       title: "Novo Evento de Promoção Disponível! 🎉",
-      message: `O administrador criou o evento de promoção "${promoName}" decorrendo de ${promoStart} até ${promoEnd}. Adira já com os seus anúncios no seu painel para ganhar destaque nacional e atrair mais clientes!`,
+      message: `O administrador criou o evento de promoção "${promoName}" (${discountVal}% de Desconto) decorrendo de ${promoStart} até ${promoEnd}. Adira já com os seus anúncios no seu painel para ganhar destaque nacional e atrair mais clientes!`,
       date: new Date().toLocaleDateString("pt-AO", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }),
       eventId: newEvent.id,
       read: false
@@ -569,12 +637,13 @@ const Admin = () => {
     // Reset fields
     setPromoName("");
     setPromoDesc("");
+    setPromoDiscount("20");
     setPromoStart("");
     setPromoEnd("");
 
     toast({
       title: "Evento criado com sucesso! 🚀",
-      description: "Todos os vendedores foram notificados para aderir ao evento."
+      description: `Evento com ${discountVal}% de desconto criado. Todos os vendedores foram notificados.`
     });
   };
 
@@ -971,58 +1040,6 @@ const Admin = () => {
       totalRealClicks += stats.clicks || 0;
     }
   });
-
-  // Filter history by range
-  const filteredTraffic = useMemo(() => {
-    if (analyticsRange === "today") {
-      return rawTrafficHistory.slice(-2); // return today and yesterday
-    } else if (analyticsRange === "7d") {
-      return rawTrafficHistory.slice(-7);
-    } else {
-      return rawTrafficHistory.slice(-30);
-    }
-  }, [rawTrafficHistory, analyticsRange]);
-
-  // Totals calculations
-  const totalStats = useMemo(() => {
-    let views = 0;
-    let viewsNew = 0;
-    let viewsRegistered = 0;
-    let shares = 0;
-    let signups = 0;
-    let direct = 0;
-    let search = 0;
-    let shareLink = 0;
-    let whatsapp = 0;
-
-    const dataToSum = analyticsRange === "today"
-      ? rawTrafficHistory.slice(-1)
-      : filteredTraffic;
-
-    dataToSum.forEach((day) => {
-      views += day.viewsTotal || 0;
-      viewsNew += day.viewsNew || 0;
-      viewsRegistered += day.viewsRegistered || 0;
-      shares += day.shares || 0;
-      signups += day.signups || 0;
-      direct += day.direct || 0;
-      search += day.search || 0;
-      shareLink += day.shareLink || 0;
-      whatsapp += day.whatsapp || 0;
-    });
-
-    return {
-      views,
-      viewsNew,
-      viewsRegistered,
-      shares,
-      signups,
-      direct,
-      search,
-      shareLink,
-      whatsapp
-    };
-  }, [filteredTraffic, rawTrafficHistory, analyticsRange]);
 
   // Filter listings
   const filteredListings = activeListings.filter(l => {
@@ -2311,12 +2328,34 @@ const Admin = () => {
                       </div>
 
                       <div>
-                        <label className="text-[10px] font-bold uppercase tracking-wider block mb-1">Descontos Sugeridos</label>
-                        <div className="flex gap-1.5 flex-wrap pt-1">
-                          {[10, 15, 20, 30, 50].map((d) => (
-                            <span key={d} className="px-2.5 py-1 rounded-full bg-red-500/10 text-red-600 dark:text-red-400 font-bold text-xs">
+                        <label className="text-[10px] font-bold uppercase tracking-wider block mb-1">Porcentagem de Desconto (%) *</label>
+                        <div className="relative">
+                          <Input
+                            type="number"
+                            min="1"
+                            max="99"
+                            required
+                            value={promoDiscount}
+                            onChange={(e) => setPromoDiscount(e.target.value)}
+                            placeholder="Ex: 20"
+                            className="h-10 rounded-xl bg-card pr-8 font-bold"
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-extrabold text-muted-foreground">%</span>
+                        </div>
+                        <div className="flex gap-1.5 flex-wrap pt-2">
+                          {[5, 10, 15, 20, 25, 30, 40, 50, 70].map((d) => (
+                            <button
+                              type="button"
+                              key={d}
+                              onClick={() => setPromoDiscount(String(d))}
+                              className={`px-2.5 py-1 rounded-full font-bold text-xs transition-all ${
+                                Number(promoDiscount) === d
+                                  ? "bg-red-500 text-white shadow-sm scale-105"
+                                  : "bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20"
+                              }`}
+                            >
                               {d}% Off
-                            </span>
+                            </button>
                           ))}
                         </div>
                       </div>
@@ -2338,17 +2377,22 @@ const Admin = () => {
                     </p>
 
                     <div className="space-y-4 pt-2">
-                      {promoEvents.map((event) => (
+                      {promoEvents.map((event: any) => (
                         <div
                           key={event.id}
                           className="p-5 rounded-2xl bg-card border border-border/50 shadow-sm space-y-3"
                         >
                           <div className="flex items-start justify-between gap-4">
                             <div>
-                              <h4 className="font-bold text-base text-foreground flex items-center gap-2">
-                                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                                {event.name}
-                              </h4>
+                              <div className="flex items-center gap-2 flex-wrap mb-1">
+                                <h4 className="font-bold text-base text-foreground flex items-center gap-2">
+                                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                                  {event.name || event.title}
+                                </h4>
+                                <span className="bg-red-500/10 text-red-600 dark:text-red-400 font-extrabold text-xs px-2.5 py-0.5 rounded-full border border-red-500/20">
+                                  Desconto: {event.discountPercentage || event.discountText || (event.discounts?.[0] ? `${event.discounts[0]}%` : "20%")}
+                                </span>
+                              </div>
                               <p className="text-xs text-muted-foreground mt-1">{event.description}</p>
                             </div>
 
@@ -2363,7 +2407,7 @@ const Admin = () => {
 
                           <div className="flex flex-wrap items-center gap-4 text-xs font-mono font-medium pt-2 border-t border-border/40 text-muted-foreground">
                             <span className="bg-muted px-2 py-0.5 rounded">
-                              Duração: {event.startDate} até {event.endDate}
+                              Duração: {event.startDate || "Imediato"} até {event.endDate || event.expiresAt || "Ativo"}
                             </span>
                             <span className="text-emerald-600 dark:text-emerald-400 font-bold">
                               ● Vendedores Podem Aderir

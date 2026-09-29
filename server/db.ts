@@ -187,33 +187,17 @@ export function generateSeedTrafficHistory(): DailyTrafficRecord[] {
     d.setDate(baseDate.getDate() - i);
     const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     
-    const dayOfWeek = d.getDay();
-    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-    const growthFactor = 1 + (29 - i) * 0.04;
-    const baseViews = isWeekend ? 180 : 260;
-    const viewsTotal = Math.floor(baseViews * growthFactor + Math.random() * 40);
-    const viewsNew = Math.floor(viewsTotal * 0.68);
-    const viewsRegistered = viewsTotal - viewsNew;
-    
-    const shares = Math.floor(viewsTotal * 0.12 + Math.random() * 5);
-    const signups = Math.floor(viewsTotal * 0.05 + Math.random() * 3);
-    
-    const direct = Math.floor(viewsTotal * 0.35);
-    const search = Math.floor(viewsTotal * 0.30);
-    const shareLink = Math.floor(viewsTotal * 0.15);
-    const whatsapp = viewsTotal - (direct + search + shareLink);
-    
     list.push({
       date: dateStr,
-      viewsTotal,
-      viewsNew,
-      viewsRegistered,
-      shares,
-      signups,
-      direct,
-      search,
-      shareLink,
-      whatsapp,
+      viewsTotal: 0,
+      viewsNew: 0,
+      viewsRegistered: 0,
+      shares: 0,
+      signups: 0,
+      direct: 0,
+      search: 0,
+      shareLink: 0,
+      whatsapp: 0,
     });
   }
   return list;
