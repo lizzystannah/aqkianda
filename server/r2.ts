@@ -4,12 +4,17 @@ import fs from "fs";
 
 // Dynamic Cloudflare R2 Helper Configuration
 export function getR2Config() {
-  const secretKey = process.env.R2_SECRET_ACCESS_KEY || process.env.R2_TOKEN || process.env.CLOUDFLARE_R2_SECRET || "";
-  const accessKey = process.env.R2_ACCESS_KEY_ID || process.env.R2_KEY_ID || secretKey;
+  const secretKey = process.env.R2_SECRET_ACCESS_KEY || process.env.R2_SECRET_KEY || process.env.CLOUDFLARE_R2_SECRET || "";
+  const accessKey = process.env.R2_ACCESS_KEY_ID || process.env.R2_ACCESS_KEY || process.env.R2_KEY_ID || "";
   const bucket = process.env.R2_BUCKET_NAME || process.env.R2_BUCKET || process.env.BUCKET_NAME || process.env.CLOUDFLARE_R2_BUCKET || "";
   const accountId = process.env.R2_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID || "";
   const publicDomain = (process.env.R2_PUBLIC_DOMAIN || process.env.R2_CUSTOM_DOMAIN || "").replace(/\/+$/, "");
-  const endpoint = process.env.R2_ENDPOINT || (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : "");
+  
+  // Custom Endpoint URL support (ex: https://<ACCOUNT_ID>.r2.cloudflarestorage.com or https://<ACCOUNT_ID>.eu.r2.cloudflarestorage.com)
+  let endpoint = process.env.R2_ENDPOINT || process.env.S3_ENDPOINT || "";
+  if (!endpoint && accountId) {
+    endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
+  }
 
   return { secretKey, accessKey, bucket, accountId, publicDomain, endpoint };
 }
@@ -128,17 +133,24 @@ export async function uploadImageToStorage(
 export async function testR2Upload(): Promise<{ success: boolean; message: string; details: Record<string, string> }> {
   const config = getR2Config();
   const details = {
-    hasSecretKey: config.secretKey ? "sim" : "não",
-    hasAccessKey: config.accessKey ? "sim" : "não",
-    bucket: config.bucket || "não definido no .env (ex: R2_BUCKET_NAME)",
-    accountId: config.accountId || "não definido no .env (ex: R2_ACCOUNT_ID)",
-    endpoint: config.endpoint || "não definido no .env"
+    hasAccessKeyId: config.accessKey ? `sim (${config.accessKey.length} chars)` : "não (recomenda-se 32 chars)",
+    hasSecretAccessKey: config.secretKey ? `sim (${config.secretKey.length} chars)` : "não (recomenda-se 64 chars)",
+    bucket: config.bucket || "não definido no .env (R2_BUCKET_NAME)",
+    endpoint: config.endpoint || "não definido no .env (R2_ENDPOINT ou R2_ACCOUNT_ID)"
   };
+
+  if (!config.accessKey) {
+    return {
+      success: false,
+      message: "Falta definir o R2_ACCESS_KEY_ID no .env (o Access Key ID de 32 caracteres gerado no Cloudflare R2).",
+      details
+    };
+  }
 
   if (!config.secretKey) {
     return {
       success: false,
-      message: "R2_SECRET_ACCESS_KEY / R2_TOKEN não encontrada no .env.",
+      message: "Falta definir o R2_SECRET_ACCESS_KEY no .env (o Secret Access Key de 64 caracteres gerado no Cloudflare R2).",
       details
     };
   }
@@ -154,7 +166,7 @@ export async function testR2Upload(): Promise<{ success: boolean; message: strin
   if (!config.endpoint) {
     return {
       success: false,
-      message: "Falta definir o R2_ACCOUNT_ID no .env. O Cloudflare R2 necessita do teu Account ID para saber o endpoint do teu servidor S3 (https://<ACCOUNT_ID>.r2.cloudflarestorage.com).",
+      message: "Falta definir o R2_ENDPOINT no .env (ex: R2_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com ou R2_ACCOUNT_ID).",
       details
     };
   }
