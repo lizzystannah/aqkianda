@@ -79,9 +79,20 @@ export function generateToken(payload: JwtUserPayload): string {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
 }
 
+// Tokens emitidos antes deste instante são rejeitados (logout forçado global).
+// Usar para invalidar todas as sessões existentes: definir SESSION_NOT_BEFORE
+// numa data ISO (ex: 2026-09-30T12:00:00Z) ou rodar com um JWT_SECRET novo.
+const SESSION_NOT_BEFORE_MS = Date.parse(
+  process.env.SESSION_NOT_BEFORE || "2026-09-30T00:00:00Z"
+);
+
 export function verifyToken(token: string): JwtUserPayload | null {
   try {
-    return jwt.verify(token, JWT_SECRET) as JwtUserPayload;
+    const decoded = jwt.verify(token, JWT_SECRET) as JwtUserPayload & { iat?: number };
+    if (decoded.iat && decoded.iat * 1000 < SESSION_NOT_BEFORE_MS) {
+      return null;
+    }
+    return decoded;
   } catch {
     return null;
   }
@@ -855,6 +866,37 @@ async function startServer() {
     }
   });
 
+  // Validação de sessão no arranque do cliente (fonte de verdade para role/admin)
+  app.get("/api/auth/me", requireAuth, async (req, res) => {
+    try {
+      const payload = req.user;
+      if (!payload?.email) {
+        return res.status(401).json({ error: "Sessão inválida." });
+      }
+
+      const user = await findDbUserByEmail(payload.email);
+      if (!user || user.status === "banned" || user.status === "suspended") {
+        return res.status(401).json({ error: "Sessão inválida." });
+      }
+
+      res.json({
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          role: isAdminEmail(user.email) ? "admin" : user.role || "user",
+          avatar: user.avatar,
+          location: user.location,
+          securityQuestion: user.securityQuestion
+        }
+      });
+    } catch (error) {
+      console.error("Erro ao validar sessão:", error);
+      res.status(500).json({ error: "Erro ao validar a sessão." });
+    }
+  });
+
   // Security Question Recovery Endpoints
   app.post("/api/auth/forgot-password/question", authLimiter, async (req, res) => {
     try {
@@ -1035,6 +1077,14 @@ async function startServer() {
     }
   });
 
+  // Evita que o navegador cacheie o index.html com código antigo em produção
+  app.use((req, res, next) => {
+    if (req.method === "GET" && !path.extname(req.path)) {
+      res.setHeader("Cache-Control", "no-store");
+    }
+    next();
+  });
+
   // Dev mode: Vite middleware
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -1047,7 +1097,10 @@ async function startServer() {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get("/{*path}", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+      res.setHeader("Cache-Control", "no-store");
+      res.sendFile(path.join(distPath, "index.html"), {
+        headers: { "Cache-Control": "no-store" }
+      });
     });
   }
 

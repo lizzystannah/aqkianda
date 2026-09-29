@@ -89,18 +89,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const saved = localStorage.getItem("user");
       if (!saved) return null;
 
+      // Sessão inválida: sem token JWT não existe sessão real no servidor
+      if (!localStorage.getItem(AUTH_TOKEN_KEY)) {
+        localStorage.removeItem("user");
+        localStorage.removeItem(LAST_ACTIVITY_KEY);
+        return null;
+      }
+
       const lastActivity = localStorage.getItem(LAST_ACTIVITY_KEY);
-      if (lastActivity) {
-        const lastTime = parseInt(lastActivity, 10);
-        // Se já passou mais de 1 hora sem atividade, invalida a sessão imediatamente
-        if (isNaN(lastTime) || Date.now() - lastTime > SESSION_MAX_INACTIVITY_MS) {
-          localStorage.removeItem("user");
-          localStorage.removeItem(LAST_ACTIVITY_KEY);
-          return null;
-        }
-      } else {
-        // Se não tinha timestamp gravado, inicia com o horário atual
-        localStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
+      // Sem registo de atividade (sessão antiga ou manipulada) -> invalidar
+      if (!lastActivity) {
+        localStorage.removeItem("user");
+        localStorage.removeItem(LAST_ACTIVITY_KEY);
+        localStorage.removeItem(AUTH_TOKEN_KEY);
+        return null;
+      }
+
+      const lastTime = parseInt(lastActivity, 10);
+      // Se já passou mais de 1 hora sem atividade, invalida a sessão imediatamente
+      if (isNaN(lastTime) || Date.now() - lastTime > SESSION_MAX_INACTIVITY_MS) {
+        localStorage.removeItem("user");
+        localStorage.removeItem(LAST_ACTIVITY_KEY);
+        localStorage.removeItem(AUTH_TOKEN_KEY);
+        return null;
       }
 
       return JSON.parse(saved);
@@ -128,6 +139,69 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     window.dispatchEvent(new Event("aqkianda-auth-change"));
   }, [user]);
 
+  // Valida a sessão com o servidor no arranque (fonte de verdade para role/admin)
+  useEffect(() => {
+    // Remove chave legada de bypass que existia em versões anteriores
+    localStorage.removeItem("aqkianda_is_admin");
+
+    if (!user) return;
+
+    if (!localStorage.getItem(AUTH_TOKEN_KEY)) {
+      setUser(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    fetch("/api/auth/me", { headers: getAuthHeaders() })
+      .then(async (res) => {
+        if (cancelled) return;
+
+        if (res.status === 401 || res.status === 403 || res.status === 404) {
+          // Token inválido/expirado, conta removida ou suspensa
+          setUser(null);
+          localStorage.removeItem(AUTH_TOKEN_KEY);
+          localStorage.removeItem(LAST_ACTIVITY_KEY);
+          window.dispatchEvent(new Event("aqkianda-auth-change"));
+          toast({
+            variant: "destructive",
+            title: "Sessão expirada",
+            description: "Por segurança, inicia sessão novamente.",
+          });
+          return;
+        }
+
+        if (!res.ok) return; // 5xx: manter a sessão local
+
+        const data = await res.json().catch(() => null);
+        const serverUser = data?.user;
+        if (!serverUser) return;
+
+        // Sincroniza papel/dados com o servidor: o localStorage não é fonte de verdade
+        setUser((prev) =>
+          prev
+            ? {
+                ...prev,
+                name: serverUser.name ?? prev.name,
+                email: serverUser.email ?? prev.email,
+                phone: serverUser.phone ?? prev.phone,
+                role: (serverUser.role as User["role"]) || "user",
+                avatar: serverUser.avatar ?? prev.avatar,
+                province: serverUser.location ?? prev.province,
+              }
+            : prev
+        );
+      })
+      .catch(() => {
+        // Sem ligação ao backend: mantém a sessão local
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Monitorização de inatividade (1 hora máx)
   useEffect(() => {
     if (!user) return;
@@ -141,6 +215,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(null);
           localStorage.removeItem("user");
           localStorage.removeItem(LAST_ACTIVITY_KEY);
+          // O token também tem de morrer: sem isto a API continuava a aceitar o JWT
+          localStorage.removeItem(AUTH_TOKEN_KEY);
           window.dispatchEvent(new Event("aqkianda-auth-change"));
           toast({
             variant: "destructive",
