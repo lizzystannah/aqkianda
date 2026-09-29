@@ -38,6 +38,18 @@ const Header = () => {
     setIsProfileMenuOpen(false);
   }, [loc.pathname]);
 
+  // Lock body scroll when mobile menu drawer is open
+  useEffect(() => {
+    if (isMobileMenuOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isMobileMenuOpen]);
+
   return (
     <>
       <header className="sticky top-0 z-50 w-full border-b border-border/60 bg-background/85 backdrop-blur-xl">
@@ -68,6 +80,11 @@ const Header = () => {
 
         {/* Desktop Navigation */}
         <nav className="hidden md:flex items-center gap-1 ml-auto">
+          <Link to="/blog">
+            <Button variant="ghost" size="sm" className="rounded-full text-xs font-semibold hover:bg-primary/10 hover:text-primary transition-smooth px-3">
+              Blog
+            </Button>
+          </Link>
           <Button variant="ghost" size="icon" className="rounded-full hover:bg-primary/10 hover:text-primary transition-smooth" onClick={toggleTheme} aria-label="Alternar tema">
             {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
           </Button>
@@ -180,17 +197,17 @@ const Header = () => {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsMobileMenuOpen(false)}
-              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden"
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] md:hidden"
             />
             <motion.div
               initial={{ x: "100%" }}
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
               transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="fixed inset-y-0 right-0 w-[280px] border-l border-gray-200 dark:border-gray-800 shadow-2xl z-50 md:hidden"
+              className="fixed inset-y-0 right-0 w-[280px] max-h-[100dvh] border-l border-gray-200 dark:border-gray-800 shadow-2xl z-[75] md:hidden overflow-y-auto overscroll-contain touch-pan-y"
               style={{ backgroundColor: isDark ? "#090d16" : "#ffffff" }}
             >
-              <div className="flex flex-col h-full p-6">
+              <div className="flex flex-col min-h-full p-6 pb-32 sm:pb-8">
                 <div className="flex items-center justify-between mb-8">
                   <span className="font-display font-bold text-xl">Menu</span>
                   <button onClick={() => setIsMobileMenuOpen(false)} className="p-2 rounded-full hover:bg-muted">

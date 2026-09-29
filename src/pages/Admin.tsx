@@ -6,7 +6,7 @@ import {
   Eye, TrendingUp, Sparkles, Send, Mail, Phone, Calendar, Plus, Megaphone,
   Upload, Image as ImageIcon, Link as LinkIcon, FolderPlus, Tag, Laptop, ShoppingBag,
   Car, Home, Shirt, Sofa, Dumbbell, Briefcase, Wrench, Smartphone,
-  LineChart, Share2, Globe
+  LineChart, Share2, Globe, BookOpen, FileText, Edit
 } from "lucide-react";
 import { useNavigate, Link } from "react-router-dom";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, ResponsiveContainer, BarChart, Bar, Cell, Legend } from "recharts";
@@ -123,8 +123,37 @@ const Admin = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
   const { getListingRating } = useRatings();
-  const [activeTab, setActiveTab] = useState<"anuncios" | "denuncias" | "vendedores" | "slides" | "promocoes" | "categorias" | "analytics">("anuncios");
+  const [activeTab, setActiveTab] = useState<"anuncios" | "denuncias" | "vendedores" | "slides" | "promocoes" | "categorias" | "analytics" | "blog">("anuncios");
   const [analyticsRange, setAnalyticsRange] = useState<"today" | "7d" | "30d">("7d");
+  
+  // Blog Management State
+  const [blogPosts, setBlogPosts] = useState<Array<{ id: string; slug: string; title: string; summary: string; content: string; coverImage: string; category: string; authorName: string; viewsCount?: number; isPublished: boolean; createdAt: string }>>([]);
+  const [blogTitle, setBlogTitle] = useState("");
+  const [blogSlug, setBlogSlug] = useState("");
+  const [blogCategory, setBlogCategory] = useState("Dicas de Segurança");
+  const [blogSummary, setBlogSummary] = useState("");
+  const [blogContent, setBlogContent] = useState("");
+  const [blogCoverImage, setBlogCoverImage] = useState("");
+  const [blogIsPublished, setBlogIsPublished] = useState(true);
+  const [editingBlogId, setEditingBlogId] = useState<string | null>(null);
+
+  // AdSense Publisher ID State
+  const [adsenseClientId, setAdsenseClientId] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem("aqkianda-adsense-client-id") || "";
+  });
+
+  const handleSaveAdsenseConfig = (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = adsenseClientId.trim();
+    localStorage.setItem("aqkianda-adsense-client-id", clean);
+    window.dispatchEvent(new Event("aqkianda-adsense-updated"));
+    window.dispatchEvent(new Event("storage"));
+    toast({
+      title: clean ? "Google AdSense Configurado! 💰" : "AdSense Desativado",
+      description: clean ? `ID de Publicador (${clean}) guardado. Os anúncios aparecerão automaticamente.` : "O ID do AdSense foi removido."
+    });
+  };
   
   // Search state
   const [adsSearch, setAdsSearch] = useState("");
@@ -272,7 +301,147 @@ const Admin = () => {
     if (savedTopBanner) {
       setTopBannerText(savedTopBanner);
     }
+
+    // 7. Blog Posts from Backend API
+    fetch("/api/blog?all=true")
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setBlogPosts(data);
+        }
+      })
+      .catch(err => console.debug("Error loading blog posts:", err));
   }, []);
+
+  // Save or Update Blog Post
+  const handleSaveBlogPost = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!blogTitle.trim() || !blogContent.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Campos obrigatórios",
+        description: "Por favor, preencha pelo menos o título e o conteúdo do artigo."
+      });
+      return;
+    }
+
+    const payload = {
+      id: editingBlogId || undefined,
+      title: blogTitle.trim(),
+      slug: blogSlug.trim() || blogTitle.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
+      category: blogCategory,
+      summary: blogSummary.trim() || blogContent.trim().slice(0, 150) + "...",
+      content: blogContent,
+      coverImage: blogCoverImage.trim() || "https://images.unsplash.com/photo-1556742049-0a67dd3a921d?auto=format&fit=crop&w=1200&q=80",
+      isPublished: blogIsPublished
+    };
+
+    try {
+      const url = editingBlogId ? `/api/blog/${editingBlogId}` : "/api/blog";
+      const method = editingBlogId ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        toast({
+          title: editingBlogId ? "Artigo atualizado! 📝" : "Artigo publicado! 🎉",
+          description: "O conteúdo do blog está pronto para os leitores."
+        });
+
+        // Reset form
+        setBlogTitle("");
+        setBlogSlug("");
+        setBlogSummary("");
+        setBlogContent("");
+        setBlogCoverImage("");
+        setEditingBlogId(null);
+
+        // Reload posts
+        const updated = await fetch("/api/blog?all=true").then(r => r.json());
+        if (Array.isArray(updated)) setBlogPosts(updated);
+      }
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao guardar",
+        description: "Não foi possível guardar o artigo do blog."
+      });
+    }
+  };
+
+  const handleEditBlogClick = (post: typeof blogPosts[0]) => {
+    setEditingBlogId(post.id);
+    setBlogTitle(post.title);
+    setBlogSlug(post.slug);
+    setBlogCategory(post.category);
+    setBlogSummary(post.summary);
+    setBlogContent(post.content);
+    setBlogCoverImage(post.coverImage);
+    setBlogIsPublished(post.isPublished);
+  };
+
+  const handleDeleteBlogPost = async (id: string) => {
+    if (!confirm("Tem a certeza que deseja eliminar este artigo do blog?")) return;
+    try {
+      const res = await fetch(`/api/blog/${id}`, {
+        method: "DELETE",
+        headers: getAuthHeaders()
+      });
+      if (res.ok) {
+        setBlogPosts(prev => prev.filter(p => p.id !== id));
+        toast({
+          title: "Artigo eliminado",
+          description: "O artigo foi removido do blog."
+        });
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleToggleBlogPublish = async (post: typeof blogPosts[0]) => {
+    try {
+      const updatedStatus = !post.isPublished;
+      const res = await fetch(`/api/blog/${post.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify({ isPublished: updatedStatus })
+      });
+      if (res.ok) {
+        setBlogPosts(prev => prev.map(p => p.id === post.id ? { ...p, isPublished: updatedStatus } : p));
+        toast({
+          title: updatedStatus ? "Artigo publicado" : "Artigo rascunho",
+          description: updatedStatus ? "O artigo está visível no blog." : "O artigo foi ocultado do público."
+        });
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Pre-fill Slide Banner with a Blog Article
+  const handleSelectBlogForBanner = (post: typeof blogPosts[0]) => {
+    setBannerTitle(post.title);
+    setBannerSubtitle(post.summary);
+    setBannerImage(post.coverImage);
+    setBannerLink(`/blog/${post.slug}`);
+    setBannerButtonText("Ler Artigo no Blog");
+    setActiveTab("slides");
+    toast({
+      title: "Artigo selecionado para o Banner! 🎨",
+      description: "Os dados do artigo foram preenchidos no formulário de Banner."
+    });
+  };
 
   // Sync pinned list with localStorage & listings property updates
   const togglePinListing = (listingId: string) => {
@@ -1100,6 +1269,17 @@ const Admin = () => {
             Slide Banners
           </button>
           <button
+            onClick={() => setActiveTab("blog")}
+            className={`flex items-center gap-2 px-4 sm:px-6 py-3 font-bold text-xs sm:text-sm whitespace-nowrap shrink-0 relative transition-all ${
+              activeTab === "blog" 
+                ? "text-primary border-b-2 border-primary bg-primary/5 rounded-t-xl" 
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <BookOpen className="h-4 w-4" />
+            Blog & Artigos
+          </button>
+          <button
             onClick={() => setActiveTab("promocoes")}
             className={`flex items-center gap-2 px-4 sm:px-6 py-3 font-bold text-xs sm:text-sm whitespace-nowrap shrink-0 relative transition-all ${
               activeTab === "promocoes" 
@@ -1662,9 +1842,27 @@ const Admin = () => {
                           <Input
                             value={bannerLink}
                             onChange={(e) => setBannerLink(e.target.value)}
-                            placeholder="Ex: /explorar ou https://..."
+                            placeholder="Ex: /explorar ou /blog/nome-do-artigo"
                             className="h-10 rounded-xl bg-card text-xs"
                           />
+                          {blogPosts.length > 0 && (
+                            <div className="mt-2 text-[11px]">
+                              <span className="text-muted-foreground font-semibold">Usar Link do Blog:</span>
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {blogPosts.slice(0, 3).map((bp) => (
+                                  <button
+                                    key={bp.id}
+                                    type="button"
+                                    onClick={() => handleSelectBlogForBanner(bp)}
+                                    className="px-2 py-0.5 rounded bg-primary/10 text-primary hover:bg-primary/20 text-[10px] font-medium truncate max-w-[150px]"
+                                    title={bp.title}
+                                  >
+                                    📖 {bp.title}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                         <div>
                           <div className="flex justify-between items-center mb-1">
@@ -1674,7 +1872,7 @@ const Admin = () => {
                           <Input
                             value={bannerButtonText}
                             onChange={(e) => setBannerButtonText(e.target.value)}
-                            placeholder="Ex: Ver Oferta"
+                            placeholder="Ex: Ver Oferta ou Ler Artigo"
                             className="h-10 rounded-xl bg-card text-xs"
                           />
                         </div>
@@ -1728,6 +1926,257 @@ const Admin = () => {
                       ))}
                     </div>
                   </div>
+                </div>
+              </motion.div>
+            )}
+
+            {/* Panel: Blog & Articles Manager */}
+            {activeTab === "blog" && (
+              <motion.div
+                key="blog-tab"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
+                <div className="grid lg:grid-cols-12 gap-8">
+                  {/* Left: Create/Edit Article Form */}
+                  <div className="lg:col-span-5 bg-muted/20 border border-border/60 rounded-2xl p-6 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-display font-bold text-lg flex items-center gap-2">
+                        <BookOpen className="h-5 w-5 text-primary" />
+                        {editingBlogId ? "Editar Artigo do Blog" : "Criar Novo Artigo no Blog"}
+                      </h3>
+                      {editingBlogId && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingBlogId(null);
+                            setBlogTitle("");
+                            setBlogSlug("");
+                            setBlogSummary("");
+                            setBlogContent("");
+                            setBlogCoverImage("");
+                          }}
+                          className="text-xs text-rose-500 hover:underline font-semibold"
+                        >
+                          Cancelar Edição
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Crie guias, notícias ou dicas de compra e venda para envolver os utilizadores da plataforma.
+                    </p>
+
+                    <form onSubmit={handleSaveBlogPost} className="space-y-4 pt-2">
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-wider block mb-1">Título do Artigo *</label>
+                        <Input
+                          required
+                          value={blogTitle}
+                          onChange={(e) => setBlogTitle(e.target.value)}
+                          placeholder="Ex: Como Comprar com Segurança em Luanda"
+                          className="h-10 rounded-xl bg-card"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-[10px] font-bold uppercase tracking-wider block mb-1">Categoria *</label>
+                          <select
+                            value={blogCategory}
+                            onChange={(e) => setBlogCategory(e.target.value)}
+                            className="w-full h-10 rounded-xl bg-card border border-input px-3 text-xs focus:outline-none focus:ring-2 focus:ring-primary"
+                          >
+                            <option value="Dicas de Segurança">Dicas de Segurança</option>
+                            <option value="Guias de Venda">Guias de Venda</option>
+                            <option value="Notícias & Tendências">Notícias & Tendências</option>
+                            <option value="Tutoriais & Tutores">Tutoriais & Tutores</option>
+                            <option value="Geral">Geral</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] font-bold uppercase tracking-wider block mb-1">Slug URL</label>
+                          <Input
+                            value={blogSlug}
+                            onChange={(e) => setBlogSlug(e.target.value)}
+                            placeholder="auto-gerado-do-titulo"
+                            className="h-10 rounded-xl bg-card text-xs font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-wider block mb-1">Resumo / Subtítulo</label>
+                        <Textarea
+                          value={blogSummary}
+                          onChange={(e) => setBlogSummary(e.target.value)}
+                          placeholder="Breve resumo para os cartões e topo do artigo..."
+                          rows={2}
+                          className="rounded-xl bg-card text-xs resize-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-wider block mb-1">Imagem de Capa (URL)</label>
+                        <Input
+                          value={blogCoverImage}
+                          onChange={(e) => setBlogCoverImage(e.target.value)}
+                          placeholder="https://images.unsplash.com/..."
+                          className="h-10 rounded-xl bg-card text-xs"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-wider block mb-1">Conteúdo Completo (Aceita HTML/Texto) *</label>
+                        <Textarea
+                          required
+                          value={blogContent}
+                          onChange={(e) => setBlogContent(e.target.value)}
+                          placeholder="<p>Escreva aqui o seu artigo completo...</p> <h3>Subtítulo</h3> <p>Detalhes...</p>"
+                          rows={8}
+                          className="rounded-xl bg-card text-xs resize-y font-mono"
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-2 pt-1">
+                        <input
+                          type="checkbox"
+                          id="blogIsPublished"
+                          checked={blogIsPublished}
+                          onChange={(e) => setBlogIsPublished(e.target.checked)}
+                          className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
+                        />
+                        <label htmlFor="blogIsPublished" className="text-xs font-semibold select-none cursor-pointer">
+                          Publicar imediatamente no site
+                        </label>
+                      </div>
+
+                      <Button type="submit" className="w-full h-11 rounded-xl bg-primary hover:bg-primary/95 text-white font-bold shadow-md">
+                        {editingBlogId ? <Edit className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
+                        {editingBlogId ? "Guardar Alterações" : "Publicar Artigo no Blog"}
+                      </Button>
+                    </form>
+                  </div>
+
+                  {/* Right: Existing Articles List */}
+                  <div className="lg:col-span-7 space-y-4">
+                    <h3 className="font-display font-bold text-lg flex items-center gap-2">
+                      <FileText className="h-5 w-5 text-primary" />
+                      Artigos Publicados ({blogPosts.length})
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      Pode editar, ocultar, eliminar ou promover qualquer artigo nos Banners da homepage.
+                    </p>
+
+                    <div className="space-y-4 pt-2">
+                      {blogPosts.map((post) => (
+                        <div
+                          key={post.id}
+                          className="p-4 rounded-2xl bg-card border border-border/60 shadow-sm flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between group hover:border-primary/30 transition-all"
+                        >
+                          <div className="flex gap-4 items-center min-w-0 flex-1">
+                            <img
+                              src={post.coverImage}
+                              alt={post.title}
+                              className="h-16 w-24 object-cover rounded-xl bg-muted shrink-0 shadow-sm"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="bg-primary/10 text-primary text-[10px] font-bold px-2 py-0.5 rounded-full">
+                                  {post.category}
+                                </span>
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${post.isPublished ? 'bg-emerald-500/10 text-emerald-600' : 'bg-muted text-muted-foreground'}`}>
+                                  {post.isPublished ? 'Publicado' : 'Rascunho'}
+                                </span>
+                              </div>
+                              <h4 className="font-bold text-sm truncate">{post.title}</h4>
+                              <p className="text-xs text-muted-foreground line-clamp-1">{post.summary}</p>
+                              <span className="text-[10px] text-muted-foreground block mt-1">
+                                {post.viewsCount || 0} visualizações • {post.createdAt.split(" ")[0]}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleSelectBlogForBanner(post)}
+                              className="px-2.5 py-1.5 rounded-xl bg-primary/10 hover:bg-primary text-primary hover:text-white text-xs font-bold transition-colors flex items-center gap-1"
+                              title="Colocar no Banner rotativo da Homepage"
+                            >
+                              <Sparkles className="h-3.5 w-3.5" />
+                              <span className="hidden sm:inline">Definir Banner</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleToggleBlogPublish(post)}
+                              className="p-2 rounded-xl bg-muted hover:bg-muted/80 text-foreground transition-all"
+                              title={post.isPublished ? "Ocultar / Rascunho" : "Publicar"}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleEditBlogClick(post)}
+                              className="p-2 rounded-xl bg-blue-500/10 hover:bg-blue-500 text-blue-500 hover:text-white transition-all"
+                              title="Editar Artigo"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteBlogPost(post.id)}
+                              className="p-2 rounded-xl bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white transition-all"
+                              title="Eliminar Artigo"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Google AdSense Integration Card */}
+                <div className="bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-primary/10 border border-amber-500/30 rounded-2xl p-6 mt-8">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="h-5 w-5 text-amber-500" />
+                        <h3 className="font-display font-bold text-lg">Configuração da Monetização Google AdSense</h3>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Insira o seu ID de Publicador AdSense para que os anúncios sejam exibidos automaticamente na plataforma e no Blog.
+                      </p>
+                    </div>
+
+                    <div className="shrink-0">
+                      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${adsenseClientId ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-muted text-muted-foreground'}`}>
+                        <span className={`h-2 w-2 rounded-full ${adsenseClientId ? 'bg-emerald-500' : 'bg-muted-foreground'}`} />
+                        {adsenseClientId ? "AdSense Ativo" : "Aguardando Configuração"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <form onSubmit={handleSaveAdsenseConfig} className="flex flex-col sm:flex-row items-center gap-3">
+                    <div className="flex-1 w-full">
+                      <Input
+                        value={adsenseClientId}
+                        onChange={(e) => setAdsenseClientId(e.target.value)}
+                        placeholder="Ex: ca-pub-1234567890123456"
+                        className="h-11 rounded-xl bg-card font-mono text-sm"
+                      />
+                    </div>
+                    <Button type="submit" className="w-full sm:w-auto h-11 rounded-xl bg-primary text-white font-bold px-6 shrink-0">
+                      Guardar ID do AdSense
+                    </Button>
+                  </form>
                 </div>
               </motion.div>
             )}

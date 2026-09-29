@@ -34,6 +34,11 @@ import {
   getAllDbBanners,
   createDbBanner,
   deleteDbBanner,
+  getAllDbBlogPosts,
+  getDbBlogPostBySlugOrId,
+  createDbBlogPost,
+  updateDbBlogPost,
+  deleteDbBlogPost,
   getAdminPassword,
   isAdminEmail,
   verifyPassword,
@@ -386,6 +391,14 @@ async function startServer() {
   app.get("/robots.txt", (req, res) => {
     const baseUrl = getBackendBaseUrl(req);
     const content = `User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/\n\nSitemap: ${baseUrl}/sitemap.xml\n`;
+    res.header("Content-Type", "text/plain; charset=utf-8");
+    res.send(content);
+  });
+
+  // Google AdSense ads.txt verification route
+  app.get("/ads.txt", (req, res) => {
+    const pubId = process.env.VITE_ADSENSE_CLIENT_ID || process.env.ADSENSE_CLIENT_ID || "ca-pub-0000000000000000";
+    const content = `google.com, ${pubId}, DIRECT, f08c47fec0942fa0\n`;
     res.header("Content-Type", "text/plain; charset=utf-8");
     res.send(content);
   });
@@ -962,6 +975,63 @@ async function startServer() {
     } catch (error) {
       console.error("Erro ao remover banner:", error);
       res.status(500).json({ error: "Erro ao remover banner." });
+    }
+  });
+
+  // ==========================================================
+  // BLOG ARTICLES API (ARTIGOS CENTRALIZADOS NO MYSQL)
+  // ==========================================================
+  app.get("/api/blog", async (req, res) => {
+    try {
+      const showAll = req.query.all === "true";
+      const posts = await getAllDbBlogPosts(!showAll);
+      res.json(posts);
+    } catch (error) {
+      console.error("Erro ao carregar artigos do blog:", error);
+      res.status(500).json({ error: "Erro ao carregar artigos do blog." });
+    }
+  });
+
+  app.get("/api/blog/:idOrSlug", async (req, res) => {
+    try {
+      const post = await getDbBlogPostBySlugOrId(req.params.idOrSlug);
+      if (!post) {
+        return res.status(404).json({ error: "Artigo do blog não encontrado." });
+      }
+      res.json(post);
+    } catch (error) {
+      console.error("Erro ao carregar artigo do blog:", error);
+      res.status(500).json({ error: "Erro ao carregar artigo do blog." });
+    }
+  });
+
+  app.post("/api/blog", requireAdmin, async (req, res) => {
+    try {
+      const created = await createDbBlogPost(req.body);
+      res.status(201).json({ success: true, post: created });
+    } catch (error) {
+      console.error("Erro ao criar artigo do blog:", error);
+      res.status(500).json({ error: "Erro ao guardar artigo do blog." });
+    }
+  });
+
+  app.put("/api/blog/:id", requireAdmin, async (req, res) => {
+    try {
+      const success = await updateDbBlogPost(req.params.id, req.body);
+      res.json({ success });
+    } catch (error) {
+      console.error("Erro ao atualizar artigo do blog:", error);
+      res.status(500).json({ error: "Erro ao atualizar artigo do blog." });
+    }
+  });
+
+  app.delete("/api/blog/:id", requireAdmin, async (req, res) => {
+    try {
+      const success = await deleteDbBlogPost(req.params.id);
+      res.json({ success });
+    } catch (error) {
+      console.error("Erro ao remover artigo do blog:", error);
+      res.status(500).json({ error: "Erro ao remover artigo do blog." });
     }
   });
 

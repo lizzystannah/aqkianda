@@ -136,6 +136,21 @@ export interface DbReportRecord {
   createdAt: string;
 }
 
+export interface DbBlogPostRecord {
+  id: string;
+  slug: string;
+  title: string;
+  summary: string;
+  content: string;
+  coverImage: string;
+  category: string;
+  authorName: string;
+  authorAvatar?: string;
+  viewsCount?: number;
+  isPublished: boolean;
+  createdAt: string;
+}
+
 /**
  * Returns list of authorized root/admin emails configured via environment variables.
  * Supports comma-separated emails e.g.: ADMIN_EMAIL=root@site.com,admin@site.com
@@ -343,8 +358,95 @@ export const SEED_LISTINGS: DbListingRecord[] = [
   }
 ];
 
+export const SEED_BLOG_POSTS: DbBlogPostRecord[] = [
+  {
+    id: "blog-1",
+    slug: "guia-de-compras-e-vendas-seguras-em-luanda",
+    title: "Guia Definitivo para Comprar e Vender em Segurança em Luanda",
+    summary: "Aprenda as melhores dicas para negociar presencialmente, verificar produtos e evitar problemas comuns em plataformas de compra e venda online em Angola.",
+    content: `
+      <h2>Negociar com Confiança e Segurança no Aqkianda</h2>
+      <p>O comércio eletrónico em Angola cresce a um ritmo acelerado. Comprar e vender artigos em segunda mão é uma excelente forma de economizar dinheiro e dar uma nova vida a objetos que já não utiliza. No entanto, é fundamental adotar medidas de segurança simples para proteger o seu dinheiro e integridade pessoal.</p>
+      
+      <h3>1. Marque Encontros Apenas em Locais Públicos e Movimentados</h3>
+      <p>Nunca aceite encontrar-se com um comprador ou vendedor em locais isolados ou no interior de residências particulares de desconhecidos. Prefira pontos de referência seguros em Luanda, como:</p>
+      <ul>
+        <li>Centros comerciais (ex: Belas Shopping, Shopping Avennida, Kero Talatona)</li>
+        <li>Postos de combustível conhecidos com movimento de pessoas</li>
+        <li>Agências bancárias ou esquadras policiais próximas</li>
+      </ul>
+
+      <h3>2. Inspecione o Artigo com Atenção Antes de Pagar</h3>
+      <p>Quando comprar telemóveis, computadores ou eletrónica, teste o dispositivo no momento do encontro. Verifique o estado da bateria, as câmeras, a ligação Wi-Fi e se o aparelho não tem bloqueios de conta ou palavras-passe ativas.</p>
+
+      <h3>3. Cuidado com Sinais de Pagamento Antecipado</h3>
+      <p>Desconfie de vendedores que exijam "sinal" ou transferência antecipada via Multicaixa Express antes de mostrar o produto pessoalmente. No Aqkianda, encorajamos que a transação ocorra no momento em que recebe e verifica o artigo.</p>
+
+      <h3>4. Guarde as Conversas dentro da Plataforma</h3>
+      <p>Utilize o sistema de mensagens integrado do Aqkianda para manter o registo das suas negociações. Assim, em caso de dúvida ou necessidade de suporte, a nossa equipa poderá auxiliar rapidamente.</p>
+    `,
+    coverImage: "https://images.unsplash.com/photo-1556742049-0a67dd3a921d?auto=format&fit=crop&w=1200&q=80",
+    category: "Dicas de Segurança",
+    authorName: "Equipa Aqkianda",
+    authorAvatar: "AQ",
+    viewsCount: 0,
+    isPublished: true,
+    createdAt: "2026-09-15 10:00:00"
+  },
+  {
+    id: "blog-2",
+    slug: "como-fotografar-produtos-para-vender-mais-rapido",
+    title: "Como Fotografar os seus Produtos para Vender 3x Mais Rápido",
+    summary: "Descubra como uma boa iluminação, ângulos corretos e detalhes limpos podem transformar o seu anúncio e atrair compradores em poucos minutos.",
+    content: `
+      <h2>A Primeira Impressão do Seu Anúncio Começa na Foto</h2>
+      <p>Estudos do mercado de e-commerce mostram que anúncios com fotos claras e bem iluminadas recebem até 3 vezes mais contactos do que anúncios com fotos escuras ou desfocadas.</p>
+
+      <h3>1. Use Iluminação Natural</h3>
+      <p>Não precisa de um estúdio profissional! A melhor luz é a luz natural do dia. Posicione o seu artigo perto de uma janela ou na varanda, evitando a luz direta do sol forte que cria sombras indesejadas.</p>
+
+      <h3>2. Fundo Limpo e Neutro</h3>
+      <p>Coloque o objeto sobre uma mesa limpa, um lençol branco ou um fundo de cor sólida. Evite distrações ao fundo que retirem a atenção do produto principal.</p>
+
+      <h3>3. Fotografe Vários Ângulos e Detalhes</h3>
+      <p>Mostre a parte frontal, traseira, de perfil e eventuais marcas de uso ou acessórios incluídos (caixa, carregador, fones). A transparência gera confiança imediata no comprador!</p>
+    `,
+    coverImage: "https://images.unsplash.com/photo-1512496015851-a90fb38ba796?auto=format&fit=crop&w=1200&q=80",
+    category: "Guias de Venda",
+    authorName: "Equipa Aqkianda",
+    authorAvatar: "AQ",
+    viewsCount: 0,
+    isPublished: true,
+    createdAt: "2026-09-20 14:30:00"
+  },
+  {
+    id: "blog-3",
+    slug: "tendencias-de-tecnologia-e-smartphones-em-angola-2026",
+    title: "Tendências de Tecnologia e Eletrónica em Angola em 2026",
+    summary: "Análise dos modelos de smartphones, laptops e gadgets mais procurados no mercado angolano neste trimestre.",
+    content: `
+      <h2>O Mercado de Eletrónica em Expansão</h2>
+      <p>O mercado de dispositivos móveis em Angola continua em constante evolução. Cada vez mais utilizadores procuram telemóveis de alta performance para trabalho, criação de conteúdo e entretenimento.</p>
+      
+      <h3>Smartphones Mais Procurados em Luanda</h3>
+      <p>Modelos da série iPhone Pro Max e Samsung Galaxy S mantêm a liderança em termos de valor de revenda. No entanto, marcas como Xiaomi e Tecno têm ganhado enorme destaque pelo excelente custo-benefício em gamas médias.</p>
+
+      <h3>Dica para Vendedores de Tecnologia</h3>
+      <p>Mantenha sempre os acessórios originais, caixas e faturas de compra, se disponível. Anúncios de tecnologia com histórico comprovado vendem significativamente mais rápido no Aqkianda!</p>
+    `,
+    coverImage: "https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1200&q=80",
+    category: "Notícias & Tendências",
+    authorName: "Equipa Aqkianda",
+    authorAvatar: "AQ",
+    viewsCount: 0,
+    isPublished: true,
+    createdAt: "2026-09-25 09:15:00"
+  }
+];
+
 // In-memory fallback stores
 let inMemoryTraffic: DailyTrafficRecord[] = [];
+const inMemoryBlogPosts: DbBlogPostRecord[] = [...SEED_BLOG_POSTS];
 const inMemoryUsers: DbUserRecord[] = [
   {
     id: "usr-admin-1",
@@ -651,6 +753,52 @@ export async function initializeDatabase() {
         \`updated_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    // 7. Tabela do Blog de Artigos
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS \`blog_posts\` (
+        \`id\` VARCHAR(64) NOT NULL PRIMARY KEY,
+        \`slug\` VARCHAR(191) NOT NULL UNIQUE,
+        \`title\` VARCHAR(255) NOT NULL,
+        \`summary\` TEXT NOT NULL,
+        \`content\` LONGTEXT NOT NULL,
+        \`cover_image\` LONGTEXT NOT NULL,
+        \`category\` VARCHAR(100) NOT NULL DEFAULT 'Geral',
+        \`author_name\` VARCHAR(150) NOT NULL DEFAULT 'Equipa Aqkianda',
+        \`author_avatar\` VARCHAR(255) DEFAULT NULL,
+        \`views_count\` INT NOT NULL DEFAULT 0,
+        \`is_published\` TINYINT(1) NOT NULL DEFAULT 1,
+        \`created_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updated_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX \`idx_blog_slug\` (\`slug\`),
+        INDEX \`idx_blog_published\` (\`is_published\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // Seed blog posts if empty
+    const [blogRows] = (await pool.query("SELECT COUNT(*) as count FROM `blog_posts`")) as [mysql.RowDataPacket[], unknown];
+    if (blogRows && blogRows[0] && blogRows[0].count === 0) {
+      console.log("🌱 Tabela do blog vazia. A semear artigos iniciais...");
+      for (const article of SEED_BLOG_POSTS) {
+        await pool.query(`
+          INSERT INTO \`blog_posts\`
+          (\`id\`, \`slug\`, \`title\`, \`summary\`, \`content\`, \`cover_image\`, \`category\`, \`author_name\`, \`author_avatar\`, \`views_count\`, \`is_published\`)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+        `, [
+          article.id,
+          article.slug,
+          article.title,
+          article.summary,
+          article.content,
+          article.coverImage,
+          article.category,
+          article.authorName,
+          article.authorAvatar || 'AQ',
+          article.viewsCount || 100
+        ]);
+      }
+      console.log("🌱 Artigos iniciais do blog semeados com sucesso no MySQL!");
+    }
 
     // 7. Seed initial listings if table is empty
     const [listingRows] = (await pool.query("SELECT COUNT(*) as count FROM `listings`")) as [mysql.RowDataPacket[], unknown];
@@ -1745,3 +1893,176 @@ export async function deleteDbBanner(id: string): Promise<boolean> {
   }
   return true;
 }
+
+// ==============================================================
+// BLOG POSTS MYSQL HELPERS
+// ==============================================================
+export async function getAllDbBlogPosts(onlyPublished: boolean = true): Promise<DbBlogPostRecord[]> {
+  if (isDbConnected && pool) {
+    try {
+      const query = onlyPublished
+        ? "SELECT id, slug, title, summary, content, cover_image as coverImage, category, author_name as authorName, author_avatar as authorAvatar, views_count as viewsCount, is_published as isPublished, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i') as createdAt FROM blog_posts WHERE is_published = 1 ORDER BY created_at DESC"
+        : "SELECT id, slug, title, summary, content, cover_image as coverImage, category, author_name as authorName, author_avatar as authorAvatar, views_count as viewsCount, is_published as isPublished, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i') as createdAt FROM blog_posts ORDER BY created_at DESC";
+
+      const [rows] = (await pool.query(query)) as [mysql.RowDataPacket[], unknown];
+      if (rows && rows.length > 0) {
+        return rows.map(r => ({
+          ...r,
+          isPublished: Boolean(r.isPublished)
+        })) as unknown as DbBlogPostRecord[];
+      }
+    } catch (e) {
+      console.error("Error fetching blog posts from MySQL:", e);
+    }
+  }
+
+  return inMemoryBlogPosts.filter(b => !onlyPublished || b.isPublished);
+}
+
+export async function getDbBlogPostBySlugOrId(identifier: string): Promise<DbBlogPostRecord | null> {
+  const clean = identifier.trim().toLowerCase();
+  if (isDbConnected && pool) {
+    try {
+      const [rows] = (await pool.query(`
+        SELECT id, slug, title, summary, content, cover_image as coverImage, category, author_name as authorName, author_avatar as authorAvatar, views_count as viewsCount, is_published as isPublished, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i') as createdAt 
+        FROM blog_posts 
+        WHERE LOWER(slug) = ? OR id = ?
+        LIMIT 1
+      `, [clean, identifier])) as [mysql.RowDataPacket[], unknown];
+
+      if (rows && rows.length > 0) {
+        const item = rows[0] as Record<string, unknown>;
+        pool.query("UPDATE blog_posts SET views_count = views_count + 1 WHERE id = ?", [item.id]).catch(() => {});
+        return {
+          ...item,
+          isPublished: Boolean(item.isPublished)
+        } as unknown as DbBlogPostRecord;
+      }
+    } catch (e) {
+      console.error("Error fetching single blog post from MySQL:", e);
+    }
+  }
+
+  const post = inMemoryBlogPosts.find(b => b.slug.toLowerCase() === clean || b.id === identifier);
+  if (post) {
+    post.viewsCount = (post.viewsCount || 0) + 1;
+    return post;
+  }
+  return null;
+}
+
+export async function createDbBlogPost(post: Partial<DbBlogPostRecord>): Promise<DbBlogPostRecord> {
+  const newId = post.id || `blog-${Date.now()}`;
+  const rawSlug = post.slug || (post.title ? post.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") : `post-${Date.now()}`);
+  
+  const record: DbBlogPostRecord = {
+    id: newId,
+    slug: rawSlug,
+    title: post.title || "Novo Artigo",
+    summary: post.summary || "",
+    content: post.content || "",
+    coverImage: post.coverImage || "https://images.unsplash.com/photo-1556742049-0a67dd3a921d?auto=format&fit=crop&w=1200&q=80",
+    category: post.category || "Geral",
+    authorName: post.authorName || "Equipa Aqkianda",
+    authorAvatar: post.authorAvatar || "AQ",
+    viewsCount: post.viewsCount || 0,
+    isPublished: post.isPublished !== false,
+    createdAt: post.createdAt || new Date().toISOString()
+  };
+
+  if (isDbConnected && pool) {
+    try {
+      await pool.query(`
+        INSERT INTO blog_posts (id, slug, title, summary, content, cover_image, category, author_name, author_avatar, views_count, is_published)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          slug = VALUES(slug),
+          title = VALUES(title),
+          summary = VALUES(summary),
+          content = VALUES(content),
+          cover_image = VALUES(cover_image),
+          category = VALUES(category),
+          author_name = VALUES(author_name),
+          author_avatar = VALUES(author_avatar),
+          is_published = VALUES(is_published)
+      `, [
+        record.id,
+        record.slug,
+        record.title,
+        record.summary,
+        record.content,
+        record.coverImage,
+        record.category,
+        record.authorName,
+        record.authorAvatar || "AQ",
+        record.viewsCount || 0,
+        record.isPublished ? 1 : 0
+      ]);
+    } catch (e) {
+      console.error("Error creating blog post in MySQL:", e);
+    }
+  }
+
+  const existingIdx = inMemoryBlogPosts.findIndex(b => b.id === record.id);
+  if (existingIdx >= 0) inMemoryBlogPosts[existingIdx] = record;
+  else inMemoryBlogPosts.unshift(record);
+
+  return record;
+}
+
+export async function updateDbBlogPost(id: string, updates: Partial<DbBlogPostRecord>): Promise<boolean> {
+  if (isDbConnected && pool) {
+    try {
+      await pool.query(`
+        UPDATE blog_posts
+        SET
+          title = COALESCE(?, title),
+          slug = COALESCE(?, slug),
+          summary = COALESCE(?, summary),
+          content = COALESCE(?, content),
+          cover_image = COALESCE(?, cover_image),
+          category = COALESCE(?, category),
+          is_published = COALESCE(?, is_published)
+        WHERE id = ?
+      `, [
+        updates.title || null,
+        updates.slug || null,
+        updates.summary || null,
+        updates.content || null,
+        updates.coverImage || null,
+        updates.category || null,
+        updates.isPublished !== undefined ? (updates.isPublished ? 1 : 0) : null,
+        id
+      ]);
+      return true;
+    } catch (e) {
+      console.error("Error updating blog post in MySQL:", e);
+    }
+  }
+
+  const post = inMemoryBlogPosts.find(b => b.id === id);
+  if (post) {
+    Object.assign(post, updates);
+    return true;
+  }
+  return false;
+}
+
+export async function deleteDbBlogPost(id: string): Promise<boolean> {
+  if (isDbConnected && pool) {
+    try {
+      await pool.query("DELETE FROM blog_posts WHERE id = ?", [id]);
+      return true;
+    } catch (e) {
+      console.error("Error deleting blog post from MySQL:", e);
+    }
+  }
+
+  const idx = inMemoryBlogPosts.findIndex(b => b.id === id);
+  if (idx >= 0) {
+    inMemoryBlogPosts.splice(idx, 1);
+    return true;
+  }
+  return false;
+}
+

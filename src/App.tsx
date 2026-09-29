@@ -29,6 +29,8 @@ import TemplateVibrant from "./pages/templates/TemplateVibrant.tsx";
 import Vendedor from "./pages/Vendedor.tsx";
 import Admin from "./pages/Admin.tsx";
 import Termos from "./pages/Termos.tsx";
+import Blog from "./pages/Blog.tsx";
+import BlogPost from "./pages/BlogPost.tsx";
 import { FavoritesProvider } from "./context/FavoritesContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { RatingsProvider } from "./context/RatingsContext";
@@ -84,6 +86,8 @@ const App = () => (
                     <Route path="/template/vibrant" element={<TemplateVibrant />} />
                     <Route path="/vendedor/:name" element={<Vendedor />} />
                     <Route path="/admin" element={<ProtectedRoute requireAdmin><Admin /></ProtectedRoute>} />
+                    <Route path="/blog" element={<Blog />} />
+                    <Route path="/blog/:slug" element={<BlogPost />} />
                     <Route path="/termos" element={<Termos />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>

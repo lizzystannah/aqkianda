@@ -132,6 +132,18 @@ const TemplateAlibabaV4 = () => {
         return () => window.removeEventListener("scroll", handleScroll);
     }, []);
 
+    // Lock body scroll when mobile menu drawer is open
+    useEffect(() => {
+        if (mobileMenuOpen) {
+            document.body.style.overflow = "hidden";
+        } else {
+            document.body.style.overflow = "";
+        }
+        return () => {
+            document.body.style.overflow = "";
+        };
+    }, [mobileMenuOpen]);
+
     const handleLogout = () => {
         logout();
     };
@@ -255,6 +267,9 @@ const TemplateAlibabaV4 = () => {
                         </div>
                         <div className="flex items-center gap-4 text-xs shrink-0">
                             <Link to="/explorar" className="hover:text-primary transition-colors">Explorar artigos</Link>
+                            <Link to="/blog" className="hover:text-primary transition-colors font-bold text-primary flex items-center gap-1">
+                                <Sparkles className="h-3.5 w-3.5" /> Blog & Dicas
+                            </Link>
                             {isAdmin && (
                                 <Link to="/admin" className="hover:text-primary transition-colors flex items-center gap-1 font-bold text-[#DC2626]"><Shield className="h-3.5 w-3.5" /> Administração</Link>
                             )}
@@ -279,9 +294,9 @@ const TemplateAlibabaV4 = () => {
 
             {/* Mobile Navigation Drawer */}
             {mobileMenuOpen && (
-                <div className="fixed inset-0 z-50 md:hidden flex justify-end">
+                <div className="fixed inset-0 z-[70] md:hidden flex justify-end">
                     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setMobileMenuOpen(false)} />
-                    <div className="relative w-4/5 max-w-[320px] h-full bg-card p-6 shadow-2xl flex flex-col justify-between overflow-y-auto z-10">
+                    <div className="relative w-4/5 max-w-[320px] h-full max-h-[100dvh] bg-card p-6 pb-32 sm:pb-8 shadow-2xl flex flex-col justify-between overflow-y-auto overscroll-contain touch-pan-y z-10">
                         <div>
                             <div className="flex items-center justify-between pb-4 border-b border-border/40 mb-5">
                                 <span className="font-extrabold text-primary text-xl lowercase flex items-center gap-1">
@@ -335,6 +350,9 @@ const TemplateAlibabaV4 = () => {
 
                                 <h4 className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Menu do utilizador</h4>
                                 <div className="space-y-3 text-sm">
+                                    <Link to="/blog" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-2.5 text-primary font-bold">
+                                        <Sparkles className="h-4 w-4" /> Blog & Dicas
+                                    </Link>
                                     <Link to="/publicar" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-2.5 text-foreground/80 hover:text-primary">
                                         <Plus className="h-4 w-4" /> Vender agora
                                     </Link>
