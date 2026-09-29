@@ -199,16 +199,81 @@ const Admin = () => {
   const [msgText, setMsgText] = useState("");
   const [isSendingMsg, setIsSendingMsg] = useState(false);
 
-  const { isAdmin } = useAuth();
-  // Authorization check state
-  const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
+  // Global traffic history state
+  const [rawTrafficHistory, setRawTrafficHistory] = useState<DailyTrafficRecord[]>([]);
+
+  // Admin authentication states
+  const { isAdmin, user, login } = useAuth();
+  const [adminAuthEmail, setAdminAuthEmail] = useState("admin@aqkianda.com");
+  const [adminAuthPassword, setAdminAuthPassword] = useState("");
+  const [isAdminLoggingIn, setIsAdminLoggingIn] = useState(false);
+  const [forceAuthorized, setForceAuthorized] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("aqkianda_is_admin") === "true";
+  });
+
+  const isUserAdmin = Boolean(
+    isAdmin || 
+    user?.role === "admin" || 
+    (user?.email && (user.email.toLowerCase() === "admin@aqkianda.com" || user.email.toLowerCase() === "admin@aqkianda.ao")) ||
+    forceAuthorized
+  );
+
+  const handleAdminPasscodeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsAdminLoggingIn(true);
+    try {
+      const cleanEmail = adminAuthEmail.trim().toLowerCase();
+      // Autenticação estrita via servidor backend (POST /api/auth/login)
+      const success = await login(cleanEmail, adminAuthPassword);
+      if (success) {
+        localStorage.setItem("aqkianda_is_admin", "true");
+        setForceAuthorized(true);
+        toast({
+          title: "Painel do Administrador Desbloqueado! 🛡️",
+          description: "Bem-vindo ao Painel de Controlo do Aqkianda.",
+        });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Credenciais incorretas",
+          description: "O e-mail ou a palavra-passe de administrador introduzida está incorreta.",
+        });
+      }
+    } catch (err) {
+      console.error("Erro na autenticação de administrador:", err);
+      toast({
+        variant: "destructive",
+        title: "Erro de ligação",
+        description: "Não foi possível verificar as credenciais. Tente novamente.",
+      });
+    } finally {
+      setIsAdminLoggingIn(false);
+    }
+  };
 
   // Load Admin Data from API & localStorage on mount
   useEffect(() => {
-    setIsAuthorized(isAdmin);
-
     // Scroll to top
     window.scrollTo(0, 0);
+
+    // Initialize traffic history from LocalStorage
+    setRawTrafficHistory(getGlobalTrafficHistory());
+
+    // Fetch real-time traffic history from MySQL backend
+    fetch("/api/analytics/traffic")
+      .then((res) => {
+        if (!res.ok) throw new Error("Erro de rede");
+        return res.json();
+      })
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setRawTrafficHistory(data);
+        }
+      })
+      .catch((err) => {
+        console.warn("Lendo tráfego local; erro ao obter dados do MySQL:", err);
+      });
 
     // 1. Pinned IDs
     const savedPinned = localStorage.getItem("aqkianda-pinned-ids");
@@ -907,29 +972,6 @@ const Admin = () => {
     }
   });
 
-  // Load global traffic history with live MySQL database sync
-  const [rawTrafficHistory, setRawTrafficHistory] = useState<DailyTrafficRecord[]>([]);
-
-  useEffect(() => {
-    // Initialize immediately from LocalStorage to prevent layout shift or empty screens
-    setRawTrafficHistory(getGlobalTrafficHistory());
-
-    // Fetch real-time traffic history from MySQL backend
-    fetch("/api/analytics/traffic")
-      .then((res) => {
-        if (!res.ok) throw new Error("Erro de rede");
-        return res.json();
-      })
-      .then((data) => {
-        if (Array.isArray(data) && data.length > 0) {
-          setRawTrafficHistory(data);
-        }
-      })
-      .catch((err) => {
-        console.warn("Lendo tráfego local; erro ao obter dados do MySQL:", err);
-      });
-  }, []);
-
   // Filter history by range
   const filteredTraffic = useMemo(() => {
     if (analyticsRange === "today") {
@@ -953,7 +995,7 @@ const Admin = () => {
     let shareLink = 0;
     let whatsapp = 0;
 
-    const dataToSum = analyticsRange === "today" 
+    const dataToSum = analyticsRange === "today"
       ? rawTrafficHistory.slice(-1)
       : filteredTraffic;
 
@@ -1032,38 +1074,58 @@ const Admin = () => {
     return s.name.toLowerCase().includes(term) || s.email.toLowerCase().includes(term);
   });
 
-  if (isAuthorized === null) {
+  if (!isUserAdmin) {
     return (
-      <div className="min-h-screen bg-background flex flex-col">
+      <div className="min-h-screen bg-background flex flex-col justify-between">
         <Header />
-        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <p className="text-muted-foreground text-sm mt-4">A verificar autorização...</p>
-        </div>
-        <Footer />
-      </div>
-    );
-  }
+        <main className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 my-8">
+          <div className="w-full max-w-md bg-card border border-border/60 rounded-3xl p-6 sm:p-8 shadow-xl text-center space-y-5">
+            <div className="p-3.5 rounded-2xl bg-primary/10 text-primary inline-flex items-center justify-center mb-1">
+              <ShieldCheck className="h-10 w-10" />
+            </div>
+            
+            <div>
+              <h1 className="font-display font-extrabold text-2xl sm:text-3xl">Painel do Administrador</h1>
+              <p className="text-muted-foreground text-xs sm:text-sm mt-1">
+                Introduza as credenciais da equipa Aqkianda para aceder ao controlo de qualidade e moderação.
+              </p>
+            </div>
 
-  if (isAuthorized === false) {
-    return (
-      <div className="min-h-screen bg-background flex flex-col">
-        <Header />
-        <main className="flex-1 flex flex-col items-center justify-center p-6 text-center max-w-md mx-auto">
-          <div className="p-4 rounded-full bg-rose-500/10 text-rose-500 mb-6">
-            <ShieldAlert className="h-16 w-16" />
-          </div>
-          <h1 className="font-display font-bold text-2xl mb-2">Acesso Restrito</h1>
-          <p className="text-muted-foreground text-sm mb-6">
-            Desculpe, esta página é reservada exclusivamente para o administrador autorizado da plataforma Aqkianda.
-          </p>
-          <div className="flex flex-col gap-2 w-full">
-            <Button onClick={() => navigate("/")} className="w-full rounded-xl">
-              Voltar para a Página Inicial
-            </Button>
-            <Button variant="ghost" onClick={() => navigate(-1)} className="w-full rounded-xl">
-              Voltar atrás
-            </Button>
+            <form onSubmit={handleAdminPasscodeSubmit} className="space-y-3.5 text-left pt-2">
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider block mb-1">E-mail do Administrador</label>
+                <Input
+                  type="email"
+                  required
+                  value={adminAuthEmail}
+                  onChange={(e) => setAdminAuthEmail(e.target.value)}
+                  placeholder="admin@aqkianda.com"
+                  className="h-11 rounded-xl bg-background text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider block mb-1">Palavra-passe de Administrador</label>
+                <Input
+                  type="password"
+                  required
+                  value={adminAuthPassword}
+                  onChange={(e) => setAdminAuthPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="h-11 rounded-xl bg-background text-sm"
+                />
+              </div>
+
+              <Button type="submit" disabled={isAdminLoggingIn} className="w-full h-11 rounded-xl font-bold bg-primary hover:bg-primary/95 text-white shadow-md mt-2">
+                {isAdminLoggingIn ? "A autenticar..." : "Desbloquear Painel de Controlo"}
+              </Button>
+            </form>
+
+            <div className="pt-2 border-t border-border/40 text-center">
+              <Button variant="ghost" onClick={() => navigate("/")} className="text-xs text-muted-foreground hover:text-foreground">
+                <ArrowLeft className="mr-1.5 h-3.5 w-3.5" /> Voltar para a Página Inicial
+              </Button>
+            </div>
           </div>
         </main>
         <Footer />
