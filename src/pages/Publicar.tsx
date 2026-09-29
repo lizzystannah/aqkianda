@@ -56,6 +56,8 @@ const Publicar = () => {
   const [cat, setCat] = useState("");
   const [cond, setCond] = useState<"novo" | "usado">("novo");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadStatusText, setUploadStatusText] = useState("");
+  const [removedRemoteImages, setRemovedRemoteImages] = useState<string[]>([]);
   const [step, setStep] = useState(1);
   const [existingItem, setExistingItem] = useState<Listing | null>(null);
 
@@ -202,35 +204,29 @@ const Publicar = () => {
     if (files) {
       Array.from(files).slice(0, 8).forEach(async (file) => {
         try {
-          // Compressão suave antes do envio (máx 1600px, 85% qualidade)
+          // Compressão suave em memória no browser (máx 1600px, 85% qualidade)
           const compressedBase64 = await compressImage(file, { maxDimension: 1600, quality: 0.85 });
           if (!compressedBase64) return;
 
-          try {
-            const res = await fetch("/api/upload", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ image: compressedBase64, name: file.name })
-            });
-            if (res.ok) {
-              const data = await res.json();
-              if (data.url) {
-                setImages(prev => [...prev, data.url].slice(0, 8));
-                return;
-              }
-            }
-          } catch (err) {
-            console.debug("Upload fallback:", err);
-          }
-          setImages(prev => [...prev, compressedBase64].slice(0, 8));
+          // As fotos ficam apenas na memória do navegador.
+          // O upload para o Cloudflare R2 é feito apenas quando o utilizador clicar em 'Publicar Anúncio'!
+          setImages(prev => {
+            if (prev.length >= 8) return prev;
+            return [...prev, compressedBase64];
+          });
         } catch (err) {
-          console.error("Erro na compressão/upload:", err);
+          console.error("Erro na compressão local da foto:", err);
         }
       });
     }
   };
 
   const removeImage = (index: number) => {
+    const target = images[index];
+    // Se for uma imagem remota existente (durante edição), marca para apagar do Cloudflare R2
+    if (target && !target.startsWith("data:") && !target.includes("unsplash.com")) {
+      setRemovedRemoteImages(prev => [...prev, target]);
+    }
     setImages(prev => prev.filter((_, i) => i !== index));
   };
 
@@ -261,7 +257,47 @@ const Publicar = () => {
     setStep(3);
   };
 
-  const handleResetOrDelete = () => {
+  const handleResetOrDelete = async () => {
+    if (isEditing && id) {
+      if (!confirm("Tens a certeza que desejas eliminar permanentemente este anúncio e as respetivas imagens?")) {
+        return;
+      }
+      try {
+        await fetch(`/api/listings/${id}`, { method: "DELETE" });
+        if (existingItem) {
+          const urlsToDelete: string[] = [];
+          if (existingItem.image) urlsToDelete.push(existingItem.image);
+          if (existingItem.images && Array.isArray(existingItem.images)) {
+            urlsToDelete.push(...existingItem.images);
+          }
+          if (urlsToDelete.length > 0) {
+            await fetch("/api/storage/delete", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ urls: urlsToDelete })
+            });
+          }
+        }
+      } catch (err) {
+        console.debug("Erro ao eliminar anúncio:", err);
+      }
+      
+      const customListingsStr = localStorage.getItem("aqkianda-custom-listings");
+      if (customListingsStr) {
+        const customListings = JSON.parse(customListingsStr);
+        localStorage.setItem("aqkianda-custom-listings", JSON.stringify(customListings.filter((l: Listing) => l.id !== id)));
+      }
+      window.dispatchEvent(new Event("aqkianda-listings-updated"));
+      toast({
+        title: "Anúncio Eliminado",
+        description: "O anúncio e as suas imagens foram removidos da plataforma e do Cloudflare R2.",
+        variant: "destructive"
+      });
+      nav("/perfil?tab=anuncios");
+      return;
+    }
+
+    // Se for apenas criação de novo anúncio, descarta o rascunho local
     setTitle("");
     setPrice("");
     setLoc("");
@@ -273,7 +309,7 @@ const Publicar = () => {
     setStep(1);
     toast({
       title: "Rascunho descartado 🗑️",
-      description: "As informações do anúncio foram apagadas.",
+      description: "As informações foram limpas. Nenhuma imagem foi enviada para o Cloudflare R2.",
     });
   };
 
@@ -293,7 +329,49 @@ const Publicar = () => {
     }
 
     setIsSubmitting(true);
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    setUploadStatusText("A preparar fotos para a nuvem... ☁️");
+
+    // Upload diferido: Só envia para o Cloudflare R2 agora no momento de confirmação da publicação
+    const uploadedImages: string[] = [];
+    for (let i = 0; i < images.length; i++) {
+      const img = images[i];
+      if (img.startsWith("data:image/")) {
+        setUploadStatusText(`A guardar foto ${i + 1} de ${images.length} no Cloudflare R2... ☁️`);
+        try {
+          const res = await fetch("/api/upload", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image: img, name: `anuncio_${Date.now()}_${i}.jpg` })
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.url) {
+              uploadedImages.push(data.url);
+              continue;
+            }
+          }
+        } catch (uploadErr) {
+          console.error("Erro no envio para Cloudflare R2:", uploadErr);
+        }
+      }
+      uploadedImages.push(img);
+    }
+
+    // Se estiver a editar e o utilizador apagou fotos anteriores, apagar do Cloudflare R2
+    if (removedRemoteImages.length > 0) {
+      try {
+        await fetch("/api/storage/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ urls: removedRemoteImages })
+        });
+      } catch (delErr) {
+        console.debug("Erro ao purgar fotos removidas do R2:", delErr);
+      }
+    }
+
+    setUploadStatusText("A guardar o anúncio...");
+    await new Promise(resolve => setTimeout(resolve, 500));
 
     const priceVal = parseFloat(price || "0");
     const calculatedPromoPrice = joinPromo 
@@ -315,7 +393,8 @@ const Publicar = () => {
         currency: "AOA",
         condition: cond,
         location: loc,
-        image: images[0] || "https://images.unsplash.com/photo-1546868871-7041f2a55e12?auto=format&fit=crop&w=800&q=80",
+        image: uploadedImages[0] || "https://images.unsplash.com/photo-1546868871-7041f2a55e12?auto=format&fit=crop&w=800&q=80",
+        images: uploadedImages.length > 0 ? uploadedImages : undefined,
         featured: isPromoted,
         rating: 5.0,
         categoryId: cat,
@@ -904,7 +983,7 @@ const Publicar = () => {
                     onClick={submit}
                     className="h-14 flex-[1.5] rounded-full gradient-hero text-primary-foreground shadow-glow font-semibold"
                   >
-                    {isSubmitting ? "A publicar..." : isEditing ? "Guardar Alterações" : "Publicar Anúncio"} <Check className="ml-2 h-5 w-5" />
+                    {isSubmitting ? (uploadStatusText || "A publicar...") : isEditing ? "Guardar Alterações" : "Publicar Anúncio"} <Check className="ml-2 h-5 w-5" />
                   </Button>
                 </div>
               </motion.div>

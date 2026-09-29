@@ -256,8 +256,10 @@ const Perfil = () => {
     window.dispatchEvent(new Event("storage"));
   };
 
-  const handleDeleteListing = (listingId: string) => {
+  const handleDeleteListing = async (listingId: string) => {
     if (confirm("Tens a certeza que desejas eliminar permanentemente este anúncio?")) {
+      const listingToDelete = localListings.find(l => l.id === listingId);
+
       const savedRemoved = localStorage.getItem("aqkianda-removed-ids");
       const rIds = savedRemoved ? JSON.parse(savedRemoved) : [];
       if (!rIds.includes(listingId)) {
@@ -281,10 +283,34 @@ const Perfil = () => {
       }
 
       window.dispatchEvent(new Event("storage"));
+      window.dispatchEvent(new Event("aqkianda-listings-updated"));
+
+      // Eliminar do backend e limpar imagens do Cloudflare R2
+      try {
+        await fetch(`/api/listings/${listingId}`, { method: "DELETE" });
+
+        // Como salvaguarda extra, se houver imagens locais no anúncio, purga do R2
+        if (listingToDelete) {
+          const urlsToDelete: string[] = [];
+          if (listingToDelete.image) urlsToDelete.push(listingToDelete.image);
+          if (listingToDelete.images && Array.isArray(listingToDelete.images)) {
+            urlsToDelete.push(...listingToDelete.images);
+          }
+          if (urlsToDelete.length > 0) {
+            await fetch("/api/storage/delete", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ urls: urlsToDelete })
+            });
+          }
+        }
+      } catch (err) {
+        console.debug("Backend delete sync:", err);
+      }
       
       toast({
         title: "Anúncio Eliminado",
-        description: "O anúncio foi permanentemente removido da plataforma.",
+        description: "O anúncio e as respetivas imagens foram removidos da plataforma e do Cloudflare R2.",
       });
     }
   };

@@ -443,9 +443,10 @@ const Admin = () => {
   };
 
   // Delete a listing
-  const handleDeleteListing = (listingId: string) => {
+  const handleDeleteListing = async (listingId: string) => {
     if (confirm("Tem certeza que deseja remover este anúncio de forma permanente?")) {
-      // In a real app we'd filter the main database. For our mock store, we can save a list of banned/removed listing IDs in localStorage.
+      const listingToDelete = listings.find(l => l.id === listingId);
+
       const removedIds = JSON.parse(localStorage.getItem("aqkianda-removed-ids") || "[]");
       removedIds.push(listingId);
       localStorage.setItem("aqkianda-removed-ids", JSON.stringify(removedIds));
@@ -458,10 +459,33 @@ const Admin = () => {
       
       // Dispatch storage event to trigger dynamic updates across frames
       window.dispatchEvent(new Event("storage"));
+      window.dispatchEvent(new Event("aqkianda-listings-updated"));
+
+      // Chamar backend para eliminar o anúncio do MySQL e purgar do Cloudflare R2
+      try {
+        await fetch(`/api/listings/${listingId}`, { method: "DELETE" });
+
+        if (listingToDelete) {
+          const urlsToDelete: string[] = [];
+          if (listingToDelete.image) urlsToDelete.push(listingToDelete.image);
+          if (listingToDelete.images && Array.isArray(listingToDelete.images)) {
+            urlsToDelete.push(...listingToDelete.images);
+          }
+          if (urlsToDelete.length > 0) {
+            await fetch("/api/storage/delete", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ urls: urlsToDelete })
+            });
+          }
+        }
+      } catch (err) {
+        console.debug("Backend delete sync:", err);
+      }
 
       toast({
         title: "Anúncio removido",
-        description: "O anúncio foi retirado de circulação com sucesso.",
+        description: "O anúncio e as suas imagens foram retirados de circulação e do Cloudflare R2 com sucesso.",
         variant: "destructive"
       });
 

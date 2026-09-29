@@ -34,7 +34,7 @@ import {
   getAdminPassword,
   isAdminEmail
 } from "./server/db.js";
-import { uploadImageToStorage, isR2Configured, testR2Upload, getR2ObjectStream } from "./server/r2.js";
+import { uploadImageToStorage, isR2Configured, testR2Upload, getR2ObjectStream, deleteR2Object } from "./server/r2.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -298,11 +298,51 @@ async function startServer() {
 
   app.delete("/api/listings/:id", async (req, res) => {
     try {
-      const success = await deleteDbListing(req.params.id);
+      const listingId = req.params.id;
+      // Fetch listing first to discover images that must be removed from Cloudflare R2
+      const listing = await getDbListingById(listingId);
+      if (listing) {
+        const imagesToDelete: string[] = [];
+        if (listing.image) imagesToDelete.push(listing.image);
+        if (listing.images && Array.isArray(listing.images)) {
+          imagesToDelete.push(...listing.images);
+        } else if (listing.images && typeof listing.images === "string") {
+          try {
+            const parsed = JSON.parse(listing.images);
+            if (Array.isArray(parsed)) imagesToDelete.push(...parsed);
+          } catch (_) {
+            // Not a JSON string
+          }
+        }
+
+        // Delete all images associated with this listing from Cloudflare R2
+        for (const imgUrl of imagesToDelete) {
+          await deleteR2Object(imgUrl, uploadsDir);
+        }
+      }
+
+      const success = await deleteDbListing(listingId);
       res.json({ success });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Erro desconhecido";
       res.status(500).json({ error: "Erro ao remover anúncio", message });
+    }
+  });
+
+  // Explicit storage deletion endpoint for single or multiple files
+  app.post("/api/storage/delete", async (req, res) => {
+    try {
+      const { url, urls } = req.body;
+      const targets: string[] = urls && Array.isArray(urls) ? urls : url ? [url] : [];
+      let deletedCount = 0;
+      for (const target of targets) {
+        const ok = await deleteR2Object(target, uploadsDir);
+        if (ok) deletedCount++;
+      }
+      res.json({ success: true, count: targets.length, deletedCount });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro desconhecido";
+      res.status(500).json({ error: "Erro ao eliminar ficheiros", message });
     }
   });
 

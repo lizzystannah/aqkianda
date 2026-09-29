@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import path from "path";
 import fs from "fs";
 
@@ -71,6 +71,81 @@ export async function getR2ObjectStream(key: string) {
     console.error(`❌ Erro ao obter objeto R2 '${key}':`, err);
     return null;
   }
+}
+
+/**
+ * Extrai a chave S3/R2 a partir de uma URL ou caminho relativo (ex: uploads/img_123.jpg).
+ */
+export function extractR2Key(keyOrUrl: string): string | null {
+  if (!keyOrUrl || typeof keyOrUrl !== "string") return null;
+
+  // Não eliminar imagens externas (Unsplash, avatares gerados, etc.) ou data URIs
+  if (keyOrUrl.includes("unsplash.com") || keyOrUrl.includes("placeholder") || keyOrUrl.startsWith("data:")) {
+    return null;
+  }
+
+  // Se contiver /api/r2-file/
+  if (keyOrUrl.includes("/api/r2-file/")) {
+    const parts = keyOrUrl.split("/api/r2-file/");
+    return parts[1] ? decodeURIComponent(parts[1]) : null;
+  }
+
+  // Se começar por /uploads/
+  if (keyOrUrl.startsWith("/uploads/")) {
+    return keyOrUrl.substring(1);
+  }
+
+  // Se contiver uploads/ em qualquer ponto da URL (incluindo domínios r2.dev)
+  const uploadsIndex = keyOrUrl.indexOf("uploads/");
+  if (uploadsIndex !== -1) {
+    return decodeURIComponent(keyOrUrl.substring(uploadsIndex));
+  }
+
+  return null;
+}
+
+/**
+ * Elimina uma imagem do Cloudflare R2 e do disco local (quando o anúncio for eliminado).
+ */
+export async function deleteR2Object(keyOrUrl: string, uploadsDir?: string): Promise<boolean> {
+  if (!keyOrUrl) return false;
+
+  const key = extractR2Key(keyOrUrl);
+  if (!key) return false;
+
+  let r2Deleted = false;
+  const s3 = getS3Client();
+  const config = getR2Config();
+
+  if (s3 && config.bucket) {
+    try {
+      const command = new DeleteObjectCommand({
+        Bucket: config.bucket,
+        Key: key,
+      });
+      await s3.send(command);
+      console.log(`🗑️ Imagem eliminada com sucesso do Cloudflare R2: ${key}`);
+      r2Deleted = true;
+    } catch (err) {
+      console.error(`Erro ao eliminar objeto do Cloudflare R2 '${key}':`, err);
+    }
+  }
+
+  // Também remover do disco local se fornecido
+  if (uploadsDir) {
+    try {
+      const localFilename = path.basename(key);
+      const localPath = path.join(uploadsDir, localFilename);
+      if (fs.existsSync(localPath)) {
+        fs.unlinkSync(localPath);
+        console.log(`🗑️ Ficheiro local eliminado: ${localPath}`);
+      }
+    } catch (localErr) {
+      console.error(`Erro ao remover ficheiro local '${key}':`, localErr);
+    }
+  }
+
+  return r2Deleted;
 }
 
 /**
