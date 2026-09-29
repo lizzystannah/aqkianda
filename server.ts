@@ -75,21 +75,19 @@ declare global {
 }
 /* eslint-enable @typescript-eslint/no-namespace */
 
-export function generateToken(payload: JwtUserPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
-}
+// Versão do token: invalida todas as sessões existentes quando alterada.
+// Subir AUTH_TOKEN_VERSION (env) faz logout global imediato, sem depender de datas.
+const AUTH_TOKEN_VERSION = process.env.AUTH_TOKEN_VERSION || "1";
 
-// Tokens emitidos antes deste instante são rejeitados (logout forçado global).
-// Usar para invalidar todas as sessões existentes: definir SESSION_NOT_BEFORE
-// numa data ISO (ex: 2026-09-30T12:00:00Z) ou rodar com um JWT_SECRET novo.
-const SESSION_NOT_BEFORE_MS = Date.parse(
-  process.env.SESSION_NOT_BEFORE || "2026-09-30T00:00:00Z"
-);
+export function generateToken(payload: JwtUserPayload): string {
+  return jwt.sign({ ...payload, v: AUTH_TOKEN_VERSION }, JWT_SECRET, { expiresIn: "7d" });
+}
 
 export function verifyToken(token: string): JwtUserPayload | null {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as JwtUserPayload & { iat?: number };
-    if (decoded.iat && decoded.iat * 1000 < SESSION_NOT_BEFORE_MS) {
+    const decoded = jwt.verify(token, JWT_SECRET) as JwtUserPayload & { v?: string };
+    // Tokens antigos (sem versão) ou de outra versão são rejeitados
+    if (decoded.v !== AUTH_TOKEN_VERSION) {
       return null;
     }
     return decoded;

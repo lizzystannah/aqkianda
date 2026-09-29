@@ -312,6 +312,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           };
 
           setUser(authenticatedUser);
+          // Persistência síncrona: um redirect (window.location.href) pode
+          // recarregar a página antes do effect gravar no localStorage
+          localStorage.setItem("user", JSON.stringify(authenticatedUser));
+          localStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
           toast({
             title: "Sessão iniciada!",
             description: `Bem-vindo(a) de volta, ${authenticatedUser.name}!`,
@@ -415,6 +419,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         recordPlatformSignup();
         setUser(newUser);
+        // Persistência síncrona antes de qualquer redirect/recarga
+        localStorage.setItem("user", JSON.stringify(newUser));
+        localStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
 
         toast({
           title: "Conta criada com sucesso! 🎉",
