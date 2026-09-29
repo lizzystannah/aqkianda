@@ -17,6 +17,7 @@ import { listings, formatPrice, Listing, slugify, Category, getCategories, saveC
 import { getListingAnalyticsMap, getListingStats } from "@/utils/analytics";
 import { useToast } from "@/hooks/use-toast";
 import { useRatings } from "@/context/RatingsContext";
+import { useAuth, getAuthHeaders } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -114,6 +115,11 @@ const AVAILABLE_CATEGORY_ICONS = [
 ];
 
 const Admin = () => {
+  useDocumentMetadata({
+    title: "Painel de Controlo & Administração",
+    description: "Gestão completa de anúncios, vendedores, denúncias e métricas do Aqkianda.",
+  });
+
   const { toast } = useToast();
   const navigate = useNavigate();
   const { getListingRating } = useRatings();
@@ -164,27 +170,13 @@ const Admin = () => {
   const [msgText, setMsgText] = useState("");
   const [isSendingMsg, setIsSendingMsg] = useState(false);
 
+  const { isAdmin } = useAuth();
   // Authorization check state
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
 
-  // Load Admin Data from localStorage on mount
+  // Load Admin Data from API & localStorage on mount
   useEffect(() => {
-    // Check user authorization (role === 'admin' verified from backend)
-    const storedUser = localStorage.getItem("user");
-    if (storedUser) {
-      try {
-        const parsed = JSON.parse(storedUser);
-        if (parsed && parsed.role === "admin") {
-          setIsAuthorized(true);
-        } else {
-          setIsAuthorized(false);
-        }
-      } catch (err) {
-        setIsAuthorized(false);
-      }
-    } else {
-      setIsAuthorized(false);
-    }
+    setIsAuthorized(isAdmin);
 
     // Scroll to top
     window.scrollTo(0, 0);
@@ -199,17 +191,46 @@ const Admin = () => {
       localStorage.setItem("aqkianda-pinned-ids", JSON.stringify(defaultPinned));
     }
 
-    // 2. Reports
-    const savedReports = localStorage.getItem("aqkianda-reports");
-    if (savedReports) {
-      setReports(JSON.parse(savedReports));
-    } else {
-      setReports(SEED_REPORTS);
-      localStorage.setItem("aqkianda-reports", JSON.stringify(SEED_REPORTS));
-    }
+    // 2. Reports from Backend API
+    fetch("/api/reports", {
+      headers: { ...getAuthHeaders() }
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          const mapped = data.map((r: { id: string; listingId: string; listingTitle?: string; reporterName?: string; reason: string; details: string; createdAt?: string; status?: string }) => ({
+            id: r.id,
+            listingId: r.listingId,
+            listingTitle: r.listingTitle || "Anúncio",
+            listingImage: "https://images.unsplash.com/photo-1632661674596-df8be070a5c5?auto=format&fit=crop&w=800&q=80",
+            listingPrice: 0,
+            listingCurrency: "AOA",
+            sellerName: r.reporterName || "Utilizador",
+            reason: r.reason,
+            text: r.details,
+            reportedAt: r.createdAt || "Hoje",
+            status: r.status || "Pendente"
+          }));
+          setReports(mapped);
+          localStorage.setItem("aqkianda-reports", JSON.stringify(mapped));
+        } else {
+          const savedReports = localStorage.getItem("aqkianda-reports");
+          if (savedReports) setReports(JSON.parse(savedReports));
+          else setReports(SEED_REPORTS);
+        }
+      })
+      .catch(() => {
+        const savedReports = localStorage.getItem("aqkianda-reports");
+        if (savedReports) setReports(JSON.parse(savedReports));
+        else setReports(SEED_REPORTS);
+      });
 
     // 3. Registered Users from Backend API
-    fetch("/api/admin/users")
+    fetch("/api/admin/users", {
+      headers: {
+        ...getAuthHeaders()
+      }
+    })
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) {
@@ -218,14 +239,24 @@ const Admin = () => {
       })
       .catch(err => console.debug("Error loading admin users from API:", err));
 
-    // 4. Slideshow banners
-    const savedSlides = localStorage.getItem("aqkianda-slideshow-banners");
-    if (savedSlides) {
-      setSlides(JSON.parse(savedSlides));
-    } else {
-      setSlides(DEFAULT_SLIDES);
-      localStorage.setItem("aqkianda-slideshow-banners", JSON.stringify(DEFAULT_SLIDES));
-    }
+    // 4. Slideshow banners from Backend API
+    fetch("/api/banners")
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          setSlides(data);
+          localStorage.setItem("aqkianda-slideshow-banners", JSON.stringify(data));
+        } else {
+          const savedSlides = localStorage.getItem("aqkianda-slideshow-banners");
+          if (savedSlides) setSlides(JSON.parse(savedSlides));
+          else setSlides(DEFAULT_SLIDES);
+        }
+      })
+      .catch(() => {
+        const savedSlides = localStorage.getItem("aqkianda-slideshow-banners");
+        if (savedSlides) setSlides(JSON.parse(savedSlides));
+        else setSlides(DEFAULT_SLIDES);
+      });
 
     // 5. Promo events
     const savedPromos = localStorage.getItem("aqkianda-promo-events");
@@ -345,7 +376,10 @@ const Admin = () => {
         try {
           const res = await fetch("/api/upload", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { 
+              "Content-Type": "application/json",
+              ...getAuthHeaders()
+            },
             body: JSON.stringify({ image: compressed, name: file.name })
           });
           if (res.ok) {
@@ -389,6 +423,16 @@ const Admin = () => {
     setSlides(updated);
     localStorage.setItem("aqkianda-slideshow-banners", JSON.stringify(updated));
 
+    // Sync to backend API
+    fetch("/api/banners", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify(newBanner)
+    }).catch(err => console.debug("Banner sync:", err));
+
     toast({
       title: "Adicionado ao Banner! 🖼️",
       description: `O anúncio "${listing.title}" com a primeira imagem foi publicado nos banners de destaque.`,
@@ -415,6 +459,16 @@ const Admin = () => {
     setSlides(updated);
     localStorage.setItem("aqkianda-slideshow-banners", JSON.stringify(updated));
 
+    // Sync to backend API
+    fetch("/api/banners", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify(newBanner)
+    }).catch(err => console.debug("Banner sync:", err));
+
     // Reset fields
     setBannerTitle("");
     setBannerSubtitle("");
@@ -436,6 +490,13 @@ const Admin = () => {
     const updated = slides.filter(s => s.id !== id);
     setSlides(updated);
     localStorage.setItem("aqkianda-slideshow-banners", JSON.stringify(updated));
+
+    // Sync to backend API
+    fetch(`/api/banners/${id}`, {
+      method: "DELETE",
+      headers: getAuthHeaders()
+    }).catch(err => console.debug("Banner delete sync:", err));
+
     toast({
       title: "Slide removido",
       description: "O slide foi retirado do carrossel principal."
@@ -463,7 +524,10 @@ const Admin = () => {
 
       // Chamar backend para eliminar o anúncio do MySQL e purgar do Cloudflare R2
       try {
-        await fetch(`/api/listings/${listingId}`, { method: "DELETE" });
+        await fetch(`/api/listings/${listingId}`, { 
+          method: "DELETE",
+          headers: getAuthHeaders()
+        });
 
         if (listingToDelete) {
           const urlsToDelete: string[] = [];
@@ -474,7 +538,10 @@ const Admin = () => {
           if (urlsToDelete.length > 0) {
             await fetch("/api/storage/delete", {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: { 
+                "Content-Type": "application/json",
+                ...getAuthHeaders()
+              },
               body: JSON.stringify({ urls: urlsToDelete })
             });
           }
@@ -834,11 +901,6 @@ const Admin = () => {
       </div>
     );
   }
-
-  useDocumentMetadata({
-    title: "Painel de Controlo & Administração",
-    description: "Gestão completa de anúncios, vendedores, denúncias e métricas do Aqkianda.",
-  });
 
   const appBaseUrl = getAppUrl();
 

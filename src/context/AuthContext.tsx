@@ -3,6 +3,32 @@ import { useToast } from "@/hooks/use-toast";
 import { recordPlatformSignup } from "@/utils/analytics";
 import { normalizePhoneNumber, isPhoneNumberInput } from "@/lib/phone";
 
+export const AUTH_TOKEN_KEY = "aqkianda-jwt-token";
+
+export function getSafeRedirectUrl(url?: string | null): string | null {
+  if (!url || typeof url !== "string") return null;
+  const trimmed = url.trim();
+  // Permitir apenas caminhos relativos internos seguros (ex: /publicar, /anuncio/123)
+  // Bloquear redirecionamentos externos (//evil.com), esquemas perigosos (javascript:, data:, vbscript:) e backslashes
+  if (
+    trimmed.startsWith("/") &&
+    !trimmed.startsWith("//") &&
+    !trimmed.startsWith("/\\") &&
+    !trimmed.toLowerCase().includes("javascript:") &&
+    !trimmed.toLowerCase().includes("data:") &&
+    !trimmed.toLowerCase().includes("vbscript:")
+  ) {
+    return trimmed;
+  }
+  return null;
+}
+
+export function getAuthHeaders(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const token = localStorage.getItem(AUTH_TOKEN_KEY);
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export interface User {
   id?: string;
   name: string;
@@ -10,8 +36,7 @@ export interface User {
   phone?: string;
   role?: "user" | "seller" | "admin";
   avatar?: string;
-  authMethod?: "email" | "google";
-  googleCreatedAt?: string;
+  authMethod?: "email";
   emailVerified?: boolean;
   province?: string;
   securityQuestion?: string;
@@ -26,7 +51,7 @@ export interface RegisteredUserRecord {
   role?: string;
   registeredAt: string;
   avatar: string;
-  authMethod: "email" | "google";
+  authMethod: "email";
 }
 
 interface AuthContextType {
@@ -37,13 +62,6 @@ interface AuthContextType {
   authModalRedirect: string | null;
   openAuthModal: (redirectUrl?: string) => void;
   closeAuthModal: () => void;
-  isGoogleModalOpen: boolean;
-  openGoogleModal: (redirectUrl?: string) => void;
-  closeGoogleModal: () => void;
-  loginWithGoogle: (
-    redirectUrl?: string,
-    customAccount?: { name: string; email: string; avatar?: string; phone?: string }
-  ) => Promise<void>;
   login: (email: string, pass: string, redirectUrl?: string) => Promise<boolean>;
   register: (
     name: string,
@@ -57,8 +75,10 @@ interface AuthContextType {
   updateProfile: (data: { name?: string; phone?: string; province?: string; avatar?: string; securityQuestion?: string; securityAnswer?: string }) => void;
   logout: () => void;
   verifyEmailAndCompleteProfile: (phone: string, province: string) => void;
-  getDaysRemainingForProfile: () => number;
 }
+
+const SESSION_MAX_INACTIVITY_MS = 60 * 60 * 1000; // 1 hora de inatividade máxima
+const LAST_ACTIVITY_KEY = "aqkianda-last-activity";
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -67,26 +87,95 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (typeof window === "undefined") return null;
     try {
       const saved = localStorage.getItem("user");
-      return saved ? JSON.parse(saved) : null;
+      if (!saved) return null;
+
+      const lastActivity = localStorage.getItem(LAST_ACTIVITY_KEY);
+      if (lastActivity) {
+        const lastTime = parseInt(lastActivity, 10);
+        // Se já passou mais de 1 hora sem atividade, invalida a sessão imediatamente
+        if (isNaN(lastTime) || Date.now() - lastTime > SESSION_MAX_INACTIVITY_MS) {
+          localStorage.removeItem("user");
+          localStorage.removeItem(LAST_ACTIVITY_KEY);
+          return null;
+        }
+      } else {
+        // Se não tinha timestamp gravado, inicia com o horário atual
+        localStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
+      }
+
+      return JSON.parse(saved);
     } catch (e) {
       return null;
     }
   });
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [isGoogleModalOpen, setIsGoogleModalOpen] = useState(false);
   const [authModalRedirect, setAuthModalRedirect] = useState<string | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
     if (user) {
       localStorage.setItem("user", JSON.stringify(user));
+      // Garante que o timestamp de atividade é atualizado quando o utilizador está logado
+      if (!localStorage.getItem(LAST_ACTIVITY_KEY)) {
+        localStorage.setItem(LAST_ACTIVITY_KEY, Date.now().toString());
+      }
     } else {
       localStorage.removeItem("user");
+      localStorage.removeItem(LAST_ACTIVITY_KEY);
     }
     // Notify other contexts/components of auth change
     window.dispatchEvent(new Event("aqkianda-auth-change"));
   }, [user]);
+
+  // Monitorização de inatividade (1 hora máx)
+  useEffect(() => {
+    if (!user) return;
+
+    const checkInactivity = () => {
+      const lastActivityStr = localStorage.getItem(LAST_ACTIVITY_KEY);
+      if (lastActivityStr) {
+        const lastTime = parseInt(lastActivityStr, 10);
+        if (!isNaN(lastTime) && Date.now() - lastTime > SESSION_MAX_INACTIVITY_MS) {
+          // Sessão expirada por inatividade
+          setUser(null);
+          localStorage.removeItem("user");
+          localStorage.removeItem(LAST_ACTIVITY_KEY);
+          window.dispatchEvent(new Event("aqkianda-auth-change"));
+          toast({
+            variant: "destructive",
+            title: "Sessão expirada por inatividade ⏱️",
+            description: "Por razões de segurança, a tua sessão foi encerrada após 1 hora sem atividade.",
+          });
+        }
+      }
+    };
+
+    let lastRecordedTime = Date.now();
+    const registerActivity = () => {
+      const now = Date.now();
+      // Atualiza o timestamp apenas a cada 15 segundos para poupar I/O
+      if (now - lastRecordedTime > 15000) {
+        lastRecordedTime = now;
+        localStorage.setItem(LAST_ACTIVITY_KEY, now.toString());
+      }
+    };
+
+    const activityEvents = ["mousedown", "keydown", "touchstart", "scroll", "click"];
+    activityEvents.forEach((evt) => {
+      window.addEventListener(evt, registerActivity, { passive: true });
+    });
+
+    // Verifica a cada 30 segundos se passou 1 hora
+    const intervalTimer = setInterval(checkInactivity, 30000);
+
+    return () => {
+      activityEvents.forEach((evt) => {
+        window.removeEventListener(evt, registerActivity);
+      });
+      clearInterval(intervalTimer);
+    };
+  }, [user, toast]);
 
   const openAuthModal = (redirectUrl?: string) => {
     if (redirectUrl) setAuthModalRedirect(redirectUrl);
@@ -95,133 +184,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const closeAuthModal = () => {
     setIsAuthModalOpen(false);
-  };
-
-  const openGoogleModal = (redirectUrl?: string) => {
-    if (redirectUrl) setAuthModalRedirect(redirectUrl);
-    setIsAuthModalOpen(false); // Close general auth modal if open
-    setIsGoogleModalOpen(true);
-  };
-
-  const closeGoogleModal = () => {
-    setIsGoogleModalOpen(false);
-  };
-
-  const getDaysRemainingForProfile = (): number => {
-    if (!user || !user.googleCreatedAt) return 7;
-    const createdTime = new Date(user.googleCreatedAt).getTime();
-    const now = new Date().getTime();
-    const elapsedDays = (now - createdTime) / (1000 * 60 * 60 * 24);
-    const remaining = Math.max(0, Math.ceil(7 - elapsedDays));
-    return remaining;
-  };
-
-  const loginWithGoogle = async (
-    redirectUrl?: string,
-    customAccount?: { name: string; email: string; avatar?: string; phone?: string }
-  ) => {
-    // If no custom account details provided, open Google prompt to let user specify their own account
-    if (!customAccount || !customAccount.email) {
-      openGoogleModal(redirectUrl);
-      return;
-    }
-
-    const cleanEmail = customAccount.email.trim().toLowerCase();
-    const cleanName = customAccount.name.trim() || cleanEmail.split("@")[0];
-    const userAvatar = customAccount.avatar || cleanName.slice(0, 2).toUpperCase();
-
-    // Check if user is already in registered users list
-    let existingUser: RegisteredUserRecord | undefined;
-    try {
-      const usersList: RegisteredUserRecord[] = JSON.parse(
-        localStorage.getItem("aqkianda-registered-users") || "[]"
-      );
-      existingUser = usersList.find(
-        (u) => u.email.toLowerCase() === cleanEmail
-      );
-    } catch (e) {
-      console.error(e);
-    }
-
-    const uniqueId = existingUser ? existingUser.id : `usr-g-${Date.now()}`;
-    const userPhone = existingUser?.phone || customAccount.phone || "";
-    const userProvince = existingUser?.province || "Luanda";
-
-    const googleUser: User = {
-      id: uniqueId,
-      name: cleanName,
-      email: cleanEmail,
-      avatar: userAvatar,
-      phone: userPhone,
-      province: userProvince,
-      authMethod: "google",
-      googleCreatedAt: new Date().toISOString(),
-      emailVerified: true
-    };
-
-    setUser(googleUser);
-
-    // Sync with registered users list for Admin Panel and persistent lookup
-    try {
-      const usersList: RegisteredUserRecord[] = JSON.parse(
-        localStorage.getItem("aqkianda-registered-users") || "[]"
-      );
-      const existingIdx = usersList.findIndex(
-        (u) => u.email.toLowerCase() === cleanEmail
-      );
-      if (existingIdx >= 0) {
-        usersList[existingIdx].name = cleanName;
-        usersList[existingIdx].avatar = userAvatar;
-        localStorage.setItem("aqkianda-registered-users", JSON.stringify(usersList));
-      } else {
-        recordPlatformSignup();
-        usersList.push({
-          id: uniqueId,
-          name: cleanName,
-          email: cleanEmail,
-          phone: userPhone || "Não informado",
-          province: userProvince,
-          registeredAt: new Date().toLocaleDateString("pt-AO"),
-          avatar: userAvatar,
-          authMethod: "google"
-        });
-        localStorage.setItem("aqkianda-registered-users", JSON.stringify(usersList));
-      }
-    } catch (e) {
-      console.error("Error saving registered user:", e);
-    }
-
-    // Try syncing with backend API if server is online
-    try {
-      fetch("/api/auth/google", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: uniqueId,
-          name: cleanName,
-          email: cleanEmail,
-          phone: userPhone,
-          avatar: userAvatar,
-          location: `${userProvince}, Angola`
-        })
-      }).catch((e) => console.debug("API google sync:", e));
-    } catch (err) {
-      console.debug("Backend offline for google sync:", err);
-    }
-
-    toast({
-      title: "Sessão Google Iniciada! 🚀",
-      description: `Bem-vindo(a) à tua conta pessoal Aqkianda, ${cleanName}!`,
-    });
-
-    setIsAuthModalOpen(false);
-    setIsGoogleModalOpen(false);
-
-    const target = redirectUrl || authModalRedirect;
-    if (target) {
-      setAuthModalRedirect(null);
-      window.location.href = target;
-    }
   };
 
   const login = async (emailOrPhone: string, pass: string, redirectUrl?: string): Promise<boolean> => {
@@ -256,6 +218,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (res.ok) {
         const data = await res.json();
+        if (data.token) {
+          localStorage.setItem(AUTH_TOKEN_KEY, data.token);
+        }
         if (data.user) {
           const authenticatedUser: User = {
             id: data.user.id,
@@ -277,10 +242,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           });
 
           setIsAuthModalOpen(false);
-          const target = redirectUrl || authModalRedirect;
-          if (target) {
+          const rawTarget = redirectUrl || authModalRedirect;
+          const safeTarget = getSafeRedirectUrl(rawTarget);
+          if (safeTarget) {
             setAuthModalRedirect(null);
-            window.location.href = target;
+            window.location.href = safeTarget;
           }
           return true;
         }
@@ -354,6 +320,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (res.ok) {
         const data = await res.json();
+        if (data.token) {
+          localStorage.setItem(AUTH_TOKEN_KEY, data.token);
+        }
         const serverUser = data.user;
         const newUser: User = {
           id: serverUser?.id || newUserId,
@@ -378,47 +347,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         setIsAuthModalOpen(false);
 
-        const target = redirectUrl || authModalRedirect;
-        if (target) {
+        const rawTarget = redirectUrl || authModalRedirect;
+        const safeTarget = getSafeRedirectUrl(rawTarget);
+        if (safeTarget) {
           setAuthModalRedirect(null);
-          window.location.href = target;
+          window.location.href = safeTarget;
         }
 
         return true;
+      } else {
+        const errorData = await res.json().catch(() => ({}));
+        toast({
+          variant: "destructive",
+          title: "Erro no registo",
+          description: errorData.error || "Não foi possível registar a conta. Verifica os dados e tenta novamente.",
+        });
+        return false;
       }
     } catch (err) {
-      console.debug("Backend offline para registo:", err);
+      console.error("Erro ao contactar o servidor para registo:", err);
+      toast({
+        variant: "destructive",
+        title: "Erro de ligação ao servidor",
+        description: "Não foi possível comunicar com o servidor. Verifica a tua ligação e tenta novamente.",
+      });
+      return false;
     }
-
-    const newUser: User = {
-      id: newUserId,
-      name: cleanName,
-      email: cleanEmail,
-      phone: cleanPhone,
-      avatar: userAvatar,
-      role: "user",
-      authMethod: "email",
-      emailVerified: true,
-      province: "Luanda"
-    };
-
-    setUser(newUser);
-    recordPlatformSignup();
-
-    toast({
-      title: "Conta criada com sucesso! 🎉",
-      description: `Bem-vindo(a) à tua nova conta na Aqkianda, ${newUser.name}!`,
-    });
-
-    setIsAuthModalOpen(false);
-
-    const target = redirectUrl || authModalRedirect;
-    if (target) {
-      setAuthModalRedirect(null);
-      window.location.href = target;
-    }
-
-    return true;
   };
 
   const updateProfile = (data: { name?: string; phone?: string; province?: string; avatar?: string; securityQuestion?: string; securityAnswer?: string }) => {
@@ -439,7 +393,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       fetch("/api/auth/profile", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
         body: JSON.stringify({
           email: user.email,
           name: data.name,
@@ -463,6 +420,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = () => {
     setUser(null);
     localStorage.removeItem("user");
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(LAST_ACTIVITY_KEY);
     window.dispatchEvent(new Event("aqkianda-auth-change"));
     toast({
       title: "Sessão encerrada",
@@ -490,16 +449,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         authModalRedirect,
         openAuthModal,
         closeAuthModal,
-        isGoogleModalOpen,
-        openGoogleModal,
-        closeGoogleModal,
-        loginWithGoogle,
         login,
         register,
         updateProfile,
         logout,
-        verifyEmailAndCompleteProfile,
-        getDaysRemainingForProfile
+        verifyEmailAndCompleteProfile
       }}
     >
       {children}

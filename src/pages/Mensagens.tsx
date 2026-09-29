@@ -5,7 +5,7 @@ import Footer from "@/components/Footer";
 import { Send, Search, ArrowLeft, Image as ImageIcon, X, Paperclip, ZoomIn, Lock, MessageSquare } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/context/AuthContext";
+import { useAuth, getAuthHeaders } from "@/context/AuthContext";
 import { compressImage } from "@/utils/imageCompression";
 
 type Msg = { 
@@ -49,7 +49,7 @@ const DEFAULT_MESSAGES: Record<string, Msg[]> = {
 const Mensagens = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { isAuthenticated, openAuthModal, openGoogleModal, user } = useAuth();
+  const { isAuthenticated, openAuthModal, user } = useAuth();
   const routeState = location.state as { sellerName?: string; productName?: string } | null;
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -274,12 +274,12 @@ const Mensagens = () => {
     try {
       fetch("/api/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        },
         body: JSON.stringify({
           conversationId: active.id,
-          senderId: user?.id || "usr-guest",
-          senderName: user?.name || "Utilizador",
-          senderEmail: user?.email || "guest@aqkianda.ao",
           productName: active.product || "Geral",
           content: text.trim() || "[Imagem]",
           image: attachedImage || undefined,

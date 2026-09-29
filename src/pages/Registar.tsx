@@ -8,7 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import { normalizePhoneNumber } from "@/lib/phone";
 
 const Registar = () => {
-  const { register, openGoogleModal } = useAuth();
+  const { register } = useAuth();
   const nav = useNavigate();
   const [searchParams] = useSearchParams();
   const redirectTarget = searchParams.get("redirect") || "/";
@@ -58,10 +58,6 @@ const Registar = () => {
     if (success) {
       nav(redirectTarget || "/");
     }
-  };
-
-  const handleGoogleSignup = () => {
-    openGoogleModal(redirectTarget);
   };
 
   return (

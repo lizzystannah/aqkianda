@@ -61,11 +61,11 @@ const App = () => (
                     <Route path="/explorar" element={<Explorar />} />
                     <Route path="/anuncio/:id" element={<Anuncio />} />
                     <Route path="/anuncio/:id/:slug" element={<Anuncio />} />
-                    <Route path="/publicar" element={<Publicar />} />
-                    <Route path="/publicar/:id" element={<Publicar />} />
-                    <Route path="/mensagens" element={<Mensagens />} />
+                    <Route path="/publicar" element={<ProtectedRoute><Publicar /></ProtectedRoute>} />
+                    <Route path="/publicar/:id" element={<ProtectedRoute><Publicar /></ProtectedRoute>} />
+                    <Route path="/mensagens" element={<ProtectedRoute><Mensagens /></ProtectedRoute>} />
                     <Route path="/favoritos" element={<Favoritos />} />
-                    <Route path="/perfil" element={<Perfil />} />
+                    <Route path="/perfil" element={<ProtectedRoute><Perfil /></ProtectedRoute>} />
                     <Route path="/perfil/:name" element={<Perfil />} />
                     <Route path="/entrar" element={<Entrar />} />
                     <Route path="/registar" element={<Registar />} />
@@ -83,7 +83,7 @@ const App = () => (
                     <Route path="/template/premium" element={<TemplatePremium />} />
                     <Route path="/template/vibrant" element={<TemplateVibrant />} />
                     <Route path="/vendedor/:name" element={<Vendedor />} />
-                    <Route path="/admin" element={<Admin />} />
+                    <Route path="/admin" element={<ProtectedRoute requireAdmin><Admin /></ProtectedRoute>} />
                     <Route path="/termos" element={<Termos />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>

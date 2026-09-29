@@ -1,4 +1,45 @@
 import mysql from "mysql2/promise";
+import bcrypt from "bcryptjs";
+import crypto from "crypto";
+
+export async function hashPassword(password: string): Promise<string> {
+  const salt = await bcrypt.genSalt(10);
+  return bcrypt.hash(password, salt);
+}
+
+export async function verifyPassword(password: string, hashOrPlain?: string | null): Promise<boolean> {
+  if (!password || !hashOrPlain) return false;
+  if (hashOrPlain.startsWith("$2a$") || hashOrPlain.startsWith("$2b$") || hashOrPlain.startsWith("$2y$")) {
+    try {
+      return await bcrypt.compare(password, hashOrPlain);
+    } catch {
+      return false;
+    }
+  }
+  // Constant-time check for legacy plain-text password upgrade only (timing attack protection)
+  try {
+    const a = Buffer.from(password);
+    const b = Buffer.from(hashOrPlain);
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
+export async function upgradePasswordHashIfLegacy(email: string, password: string, storedHash?: string | null): Promise<void> {
+  if (!storedHash) return;
+  if (!storedHash.startsWith("$2a$") && !storedHash.startsWith("$2b$") && !storedHash.startsWith("$2y$")) {
+    try {
+      const newHash = await hashPassword(password);
+      if (isDbConnected && pool) {
+        await pool.query("UPDATE users SET password_hash = ? WHERE LOWER(email) = ?", [newHash, email.toLowerCase()]);
+      }
+    } catch (e) {
+      console.error("Erro ao migrar senha legada:", e);
+    }
+  }
+}
 
 const DB_HOST = process.env.DB_HOST || process.env.MYSQL_HOST || "localhost";
 const DB_PORT = Number(process.env.DB_PORT || process.env.MYSQL_PORT || "3306");
@@ -321,6 +362,114 @@ const inMemoryMessages: DbMessageRecord[] = [];
 const inMemoryReports: DbReportRecord[] = [];
 
 // ==============================================================
+// RESILIENT POOL & AUTO-RECONNECT MANAGEMENT
+// ==============================================================
+let isReconnecting = false;
+let reconnectTimer: NodeJS.Timeout | null = null;
+let heartbeatInterval: NodeJS.Timeout | null = null;
+
+export function createMySQLPool(): mysql.Pool {
+  return mysql.createPool({
+    host: DB_HOST,
+    port: DB_PORT,
+    user: DB_USER,
+    password: DB_PASSWORD,
+    database: DB_NAME,
+    waitForConnections: true,
+    connectionLimit: 15,
+    queueLimit: 0,
+    connectTimeout: 15000,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10000,
+    maxIdle: 10,
+    idleTimeout: 60000,
+  });
+}
+
+export function handleDbError(err: unknown, context: string = "query") {
+  const errMsg = err instanceof Error ? err.message : String(err);
+  const isConnError = 
+    errMsg.includes("PROTOCOL_CONNECTION_LOST") ||
+    errMsg.includes("ECONNRESET") ||
+    errMsg.includes("ECONNREFUSED") ||
+    errMsg.includes("ETIMEDOUT") ||
+    errMsg.includes("EPIPE") ||
+    errMsg.includes("Can't connect to MySQL server") ||
+    errMsg.includes("closed") ||
+    errMsg.includes("ER_NET_READ_INTERRUPTED") ||
+    errMsg.includes("Connection lost") ||
+    errMsg.includes("PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR");
+
+  if (isConnError) {
+    console.warn(`⚠️ Perda de conexão MySQL detectada durante '${context}': ${errMsg}. A agendar reconexão automática...`);
+    isDbConnected = false;
+    scheduleReconnect(2000);
+  } else {
+    console.error(`Erro na operação MySQL ('${context}'):`, errMsg);
+  }
+}
+
+export function scheduleReconnect(delayMs: number = 3000) {
+  if (!DB_NAME || isReconnecting) return;
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(async () => {
+    await reconnectDatabase();
+  }, delayMs);
+}
+
+export async function reconnectDatabase(): Promise<boolean> {
+  if (!DB_NAME || isReconnecting) return false;
+  isReconnecting = true;
+  console.log(`🔄 A tentar restabelecer conexão com o MySQL '${DB_NAME}' (${DB_HOST}:${DB_PORT})...`);
+
+  try {
+    if (pool) {
+      try {
+        await pool.end();
+      } catch {
+        // Ignora erro ao fechar pool anterior
+      }
+      pool = null;
+    }
+
+    pool = createMySQLPool();
+    const conn = await pool.getConnection();
+    await conn.ping();
+    conn.release();
+
+    isDbConnected = true;
+    console.log("✅ Conexão com o MySQL restaurada e ativa com sucesso!");
+    return true;
+  } catch (err) {
+    isDbConnected = false;
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`⚠️ Tentativa de reconexão ao MySQL falhou: ${msg}. Nova tentativa automática em 10s...`);
+    scheduleReconnect(10000);
+    return false;
+  } finally {
+    isReconnecting = false;
+  }
+}
+
+export function startDatabaseHeartbeat() {
+  if (heartbeatInterval) clearInterval(heartbeatInterval);
+  heartbeatInterval = setInterval(async () => {
+    if (!DB_NAME) return;
+
+    if (isDbConnected && pool) {
+      try {
+        await pool.query("SELECT 1 as ping");
+      } catch (err) {
+        handleDbError(err, "heartbeat ping");
+      }
+    } else if (!isDbConnected && !isReconnecting) {
+      // Tenta reconectar periodicamente
+      scheduleReconnect(3000);
+    }
+  }, 15000);
+}
+
+// ==============================================================
 // DATABASE INITIALIZATION
 // ==============================================================
 export async function initializeDatabase() {
@@ -351,22 +500,13 @@ export async function initializeDatabase() {
       // Ignorar se o utilizador não tiver privilégios globais de CREATE DATABASE
     }
 
-    pool = mysql.createPool({
-      host: DB_HOST,
-      port: DB_PORT,
-      user: DB_USER,
-      password: DB_PASSWORD,
-      database: DB_NAME,
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0,
-      connectTimeout: 10000
-    });
+    pool = createMySQLPool();
 
     const conn = await pool.getConnection();
     console.log("✅ Conectado com sucesso ao MySQL!");
     conn.release();
     isDbConnected = true;
+    startDatabaseHeartbeat();
 
     // 1. Tabela de Utilizadores
     await pool.query(`
@@ -564,6 +704,9 @@ export async function initializeDatabase() {
 
     try {
       if (envAdminPass) {
+        const hashedAdminPass = (envAdminPass.startsWith("$2a$") || envAdminPass.startsWith("$2b$"))
+          ? envAdminPass
+          : await hashPassword(envAdminPass);
         await pool.query(`
           INSERT INTO \`users\` (\`id\`, \`name\`, \`email\`, \`password_hash\`, \`role\`, \`location\`)
           VALUES ('usr-admin-1', 'Administrador Aqkianda', ?, ?, 'admin', 'Luanda, Angola')
@@ -571,7 +714,7 @@ export async function initializeDatabase() {
             \`email\` = VALUES(\`email\`),
             \`password_hash\` = VALUES(\`password_hash\`),
             \`role\` = 'admin';
-        `, [primaryAdminEmail, envAdminPass]);
+        `, [primaryAdminEmail, hashedAdminPass]);
       } else {
         await pool.query(`
           INSERT INTO \`users\` (\`id\`, \`name\`, \`email\`, \`role\`, \`location\`)
@@ -581,7 +724,7 @@ export async function initializeDatabase() {
             \`role\` = 'admin';
         `, [primaryAdminEmail]);
       }
-      console.log(`🔐 Utilizador Root/Admin ('${primaryAdminEmail}') verificado e sincronizado no MySQL.`);
+      console.log("🔐 Utilizador Root/Admin verificado e sincronizado no MySQL.");
     } catch (adminErr) {
       console.error("Error syncing root admin user in MySQL:", adminErr);
     }
@@ -602,10 +745,12 @@ export async function initializeDatabase() {
       console.error("=======================================================\n");
     }
 
-    console.warn("⚠️ A reverter para o modo de simulação em memória.");
+    console.warn("⚠️ A reverter temporariamente para o modo de simulação em memória enquanto tenta reconectar...");
     inMemoryTraffic = generateSeedTrafficHistory();
     isDbConnected = false;
     pool = null;
+    startDatabaseHeartbeat();
+    scheduleReconnect(5000);
   }
 }
 
@@ -630,42 +775,42 @@ export async function getAllDbListings(): Promise<DbListingRecord[]> {
       `)) as [mysql.RowDataPacket[], unknown];
 
       if (rows && rows.length > 0) {
-        return rows.map((r: any) => {
+        return rows.map((r: Record<string, unknown>) => {
           let parsedTags: string[] = [];
           if (r.tags) {
             try {
-              parsedTags = typeof r.tags === "string" && r.tags.startsWith("[") ? JSON.parse(r.tags) : r.tags.split(",").map((t: string) => t.trim());
+              parsedTags = typeof r.tags === "string" && r.tags.startsWith("[") ? JSON.parse(r.tags) : String(r.tags).split(",").map((t: string) => t.trim());
             } catch (_) {
               parsedTags = [String(r.tags)];
             }
           }
           return {
             id: String(r.id),
-            title: r.title,
-            description: r.description,
+            title: String(r.title),
+            description: String(r.description),
             price: Number(r.price),
-            currency: r.currency || "AOA",
-            condition: r.condition || "usado",
-            location: r.location || "Luanda, Angola",
-            categoryId: r.categoryId,
-            sellerId: r.sellerId || undefined,
-            seller: r.seller,
-            sellerEmail: r.sellerEmail || undefined,
-            phone: r.phone || "",
-            image: r.image,
+            currency: (r.currency as string) || "AOA",
+            condition: (r.condition as "novo" | "usado") || "usado",
+            location: (r.location as string) || "Luanda, Angola",
+            categoryId: String(r.categoryId),
+            sellerId: r.sellerId ? String(r.sellerId) : undefined,
+            seller: String(r.seller),
+            sellerEmail: r.sellerEmail ? String(r.sellerEmail) : undefined,
+            phone: (r.phone as string) || "",
+            image: String(r.image),
             tags: parsedTags,
             featured: Boolean(r.featured),
             rating: Number(r.rating) || 5.0,
-            promoEventId: r.promoEventId || undefined,
+            promoEventId: r.promoEventId ? String(r.promoEventId) : undefined,
             promoDiscount: r.promoDiscount ? Number(r.promoDiscount) : undefined,
             promoPrice: r.promoPrice ? Number(r.promoPrice) : undefined,
-            status: r.status,
-            postedAt: r.postedAt || "Recentemente"
+            status: (r.status as string) || "active",
+            postedAt: (r.postedAt as string) || "Recentemente"
           };
         });
       }
     } catch (e) {
-      console.error("Error fetching listings from MySQL:", e);
+      handleDbError(e, "getAllDbListings");
     }
   }
   return inMemoryListings.filter(l => l.status !== "deleted");
@@ -689,14 +834,14 @@ export async function getDbListingById(id: string): Promise<DbListingRecord | nu
       `, [id])) as [mysql.RowDataPacket[], unknown];
 
       if (rows && rows.length > 0) {
-        const r = rows[0] as any;
+        const r = rows[0] as Record<string, unknown>;
         // Increment views count in background
         pool.query("UPDATE listings SET views_count = views_count + 1 WHERE id = ?", [id]).catch(() => {});
         
         let parsedTags: string[] = [];
         if (r.tags) {
           try {
-            parsedTags = typeof r.tags === "string" && r.tags.startsWith("[") ? JSON.parse(r.tags) : r.tags.split(",").map((t: string) => t.trim());
+            parsedTags = typeof r.tags === "string" && r.tags.startsWith("[") ? JSON.parse(r.tags) : String(r.tags).split(",").map((t: string) => t.trim());
           } catch (_) {
             parsedTags = [String(r.tags)];
           }
@@ -704,30 +849,30 @@ export async function getDbListingById(id: string): Promise<DbListingRecord | nu
 
         return {
           id: String(r.id),
-          title: r.title,
-          description: r.description,
+          title: String(r.title),
+          description: String(r.description),
           price: Number(r.price),
-          currency: r.currency || "AOA",
-          condition: r.condition || "usado",
-          location: r.location || "Luanda, Angola",
-          categoryId: r.categoryId,
-          sellerId: r.sellerId || undefined,
-          seller: r.seller,
-          sellerEmail: r.sellerEmail || undefined,
-          phone: r.phone || "",
-          image: r.image,
+          currency: (r.currency as string) || "AOA",
+          condition: (r.condition as "novo" | "usado") || "usado",
+          location: (r.location as string) || "Luanda, Angola",
+          categoryId: String(r.categoryId),
+          sellerId: r.sellerId ? String(r.sellerId) : undefined,
+          seller: String(r.seller),
+          sellerEmail: r.sellerEmail ? String(r.sellerEmail) : undefined,
+          phone: (r.phone as string) || "",
+          image: String(r.image),
           tags: parsedTags,
           featured: Boolean(r.featured),
           rating: Number(r.rating) || 5.0,
-          promoEventId: r.promoEventId || undefined,
+          promoEventId: r.promoEventId ? String(r.promoEventId) : undefined,
           promoDiscount: r.promoDiscount ? Number(r.promoDiscount) : undefined,
           promoPrice: r.promoPrice ? Number(r.promoPrice) : undefined,
-          status: r.status,
-          postedAt: r.postedAt || "Recentemente"
+          status: (r.status as string) || "active",
+          postedAt: (r.postedAt as string) || "Recentemente"
         };
       }
     } catch (e) {
-      console.error("Error fetching listing by ID from MySQL:", e);
+      handleDbError(e, "getDbListingById");
     }
   }
   return inMemoryListings.find(l => l.id === id && l.status !== "deleted") || null;
@@ -797,7 +942,7 @@ export async function createDbListing(item: DbListingRecord): Promise<DbListingR
       ]);
       console.log(`✅ Anúncio '${finalListing.title}' gravado com sucesso no MySQL!`);
     } catch (e) {
-      console.error("Error creating listing in MySQL:", e);
+      handleDbError(e, "createDbListing");
     }
   }
 
@@ -845,7 +990,7 @@ export async function updateDbListing(id: string, updates: Partial<DbListingReco
       ]);
       return true;
     } catch (e) {
-      console.error("Error updating listing in MySQL:", e);
+      handleDbError(e, "updateDbListing");
     }
   }
 
@@ -863,7 +1008,7 @@ export async function deleteDbListing(id: string): Promise<boolean> {
       await pool.query("UPDATE listings SET status = 'deleted' WHERE id = ?", [id]);
       return true;
     } catch (e) {
-      console.error("Error deleting listing in MySQL:", e);
+      handleDbError(e, "deleteDbListing");
     }
   }
 
@@ -1245,15 +1390,28 @@ export async function findDbUserByIdentifier(identifier: string): Promise<DbUser
   
   if (isDbConnected && pool) {
     try {
-      const [rows] = (await pool.query(`
-        SELECT id, name, email, password_hash as password, phone, role, avatar, location, security_question as securityQuestion, security_answer as securityAnswer, status, DATE_FORMAT(created_at, '%d/%m/%Y') as registeredAt 
-        FROM users 
-        WHERE LOWER(email) = ? OR (phone IS NOT NULL AND REPLACE(REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+', ''), '244', '') LIKE ?)
-        LIMIT 1
-      `, [clean, `%${coreDigits && coreDigits.length >= 7 ? coreDigits : "___NOT_MATCH___"}%`])) as [mysql.RowDataPacket[], unknown];
-      
-      if (rows && rows.length > 0) {
-        user = rows[0] as unknown as DbUserRecord;
+      if (coreDigits && coreDigits.length >= 9) {
+        const [rows] = (await pool.query(`
+          SELECT id, name, email, password_hash as password, phone, role, avatar, location, security_question as securityQuestion, security_answer as securityAnswer, status, DATE_FORMAT(created_at, '%d/%m/%Y') as registeredAt 
+          FROM users 
+          WHERE LOWER(email) = ? OR (phone IS NOT NULL AND RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+', ''), '244', ''), 9) = ?)
+          LIMIT 1
+        `, [clean, coreDigits.slice(-9)])) as [mysql.RowDataPacket[], unknown];
+        
+        if (rows && rows.length > 0) {
+          user = rows[0] as unknown as DbUserRecord;
+        }
+      } else {
+        const [rows] = (await pool.query(`
+          SELECT id, name, email, password_hash as password, phone, role, avatar, location, security_question as securityQuestion, security_answer as securityAnswer, status, DATE_FORMAT(created_at, '%d/%m/%Y') as registeredAt 
+          FROM users 
+          WHERE LOWER(email) = ?
+          LIMIT 1
+        `, [clean])) as [mysql.RowDataPacket[], unknown];
+        
+        if (rows && rows.length > 0) {
+          user = rows[0] as unknown as DbUserRecord;
+        }
       }
     } catch (e) {
       console.error("Error finding user by identifier in MySQL:", e);
@@ -1263,9 +1421,9 @@ export async function findDbUserByIdentifier(identifier: string): Promise<DbUser
   if (!user) {
     user = inMemoryUsers.find(u => {
       if (u.email.toLowerCase() === clean) return true;
-      if (coreDigits && coreDigits.length >= 7 && u.phone) {
+      if (coreDigits && coreDigits.length >= 9 && u.phone) {
         const uCore = getPhoneCoreDigits(u.phone);
-        return uCore.includes(coreDigits) || coreDigits.includes(uCore);
+        return uCore.slice(-9) === coreDigits.slice(-9);
       }
       return false;
     }) || null;
@@ -1284,6 +1442,21 @@ export async function createDbUser(user: DbUserRecord): Promise<DbUserRecord> {
   const userRole = isAdminEmail(cleanEmail) ? "admin" : (user.role || "user");
   const registeredAt = user.registeredAt || new Date().toLocaleDateString("pt-AO");
   
+  let hashedPassword: string | null = null;
+  if (user.password) {
+    hashedPassword = (user.password.startsWith("$2a$") || user.password.startsWith("$2b$") || user.password.startsWith("$2y$"))
+      ? user.password
+      : await hashPassword(user.password);
+  }
+
+  let hashedSecurityAnswer: string | null = null;
+  if (user.securityAnswer) {
+    const rawAnswer = user.securityAnswer.trim().toLowerCase();
+    hashedSecurityAnswer = (rawAnswer.startsWith("$2a$") || rawAnswer.startsWith("$2b$") || rawAnswer.startsWith("$2y$"))
+      ? rawAnswer
+      : await hashPassword(rawAnswer);
+  }
+  
   if (isDbConnected && pool) {
     try {
       await pool.query(`
@@ -1301,13 +1474,13 @@ export async function createDbUser(user: DbUserRecord): Promise<DbUserRecord> {
         user.id,
         user.name,
         cleanEmail,
-        user.password || null,
+        hashedPassword,
         cleanPhone || null,
         userRole,
         user.avatar || user.name.slice(0, 2).toUpperCase(),
         user.location || "Luanda, Angola",
         user.securityQuestion || "Qual é a tua comida tradicional angolana favorita?",
-        user.securityAnswer ? user.securityAnswer.trim().toLowerCase() : null
+        hashedSecurityAnswer
       ]);
     } catch (e) {
       console.error("Error creating user in MySQL:", e);
@@ -1319,6 +1492,8 @@ export async function createDbUser(user: DbUserRecord): Promise<DbUserRecord> {
     email: cleanEmail,
     phone: cleanPhone || user.phone,
     role: userRole,
+    password: hashedPassword || undefined,
+    securityAnswer: hashedSecurityAnswer || undefined,
     registeredAt
   };
 
@@ -1334,6 +1509,14 @@ export async function createDbUser(user: DbUserRecord): Promise<DbUserRecord> {
 
 export async function updateDbUserProfile(email: string, updates: { name?: string; phone?: string; location?: string; avatar?: string; securityQuestion?: string; securityAnswer?: string }): Promise<boolean> {
   const cleanEmail = email.trim().toLowerCase();
+  let hashedSecurityAnswer: string | null = null;
+  if (updates.securityAnswer) {
+    const rawAnswer = updates.securityAnswer.trim().toLowerCase();
+    hashedSecurityAnswer = (rawAnswer.startsWith("$2a$") || rawAnswer.startsWith("$2b$") || rawAnswer.startsWith("$2y$"))
+      ? rawAnswer
+      : await hashPassword(rawAnswer);
+  }
+
   if (isDbConnected && pool) {
     try {
       await pool.query(`
@@ -1352,7 +1535,7 @@ export async function updateDbUserProfile(email: string, updates: { name?: strin
         updates.location || null, 
         updates.avatar || null,
         updates.securityQuestion || null,
-        updates.securityAnswer ? updates.securityAnswer.trim().toLowerCase() : null,
+        hashedSecurityAnswer,
         cleanEmail
       ]);
       return true;
@@ -1368,7 +1551,7 @@ export async function updateDbUserProfile(email: string, updates: { name?: strin
     if (updates.location) user.location = updates.location;
     if (updates.avatar) user.avatar = updates.avatar;
     if (updates.securityQuestion) user.securityQuestion = updates.securityQuestion;
-    if (updates.securityAnswer) user.securityAnswer = updates.securityAnswer.trim().toLowerCase();
+    if (hashedSecurityAnswer) user.securityAnswer = hashedSecurityAnswer;
     return true;
   }
   return false;
@@ -1385,25 +1568,27 @@ export async function getSecurityQuestionForUser(identifier: string): Promise<{ 
 
 export async function resetPasswordWithSecurityAnswer(identifier: string, answer: string, newPassword: string): Promise<boolean> {
   const user = await findDbUserByIdentifier(identifier);
-  if (!user) return false;
+  if (!user || !user.securityAnswer) return false;
 
-  const storedAnswer = (user.securityAnswer || "").trim().toLowerCase();
-  const providedAnswer = answer.trim().toLowerCase();
+  const providedAnswer = (answer || "").trim().toLowerCase();
+  if (!providedAnswer) return false;
 
-  // If user didn't have a security answer set, allow fallback verification if not empty
-  if (storedAnswer && storedAnswer !== providedAnswer) {
+  const isAnswerValid = await verifyPassword(providedAnswer, user.securityAnswer);
+  if (!isAnswerValid) {
     return false;
   }
 
+  const hashedPassword = await hashPassword(newPassword);
+
   if (isDbConnected && pool) {
     try {
-      await pool.query("UPDATE users SET password_hash = ? WHERE LOWER(email) = ?", [newPassword, user.email.toLowerCase()]);
+      await pool.query("UPDATE users SET password_hash = ? WHERE LOWER(email) = ?", [hashedPassword, user.email.toLowerCase()]);
     } catch (e) {
       console.error("Error resetting password in MySQL:", e);
     }
   }
 
-  user.password = newPassword;
+  user.password = hashedPassword;
   return true;
 }
 

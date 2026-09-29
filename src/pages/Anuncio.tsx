@@ -18,54 +18,46 @@ import { useAuth } from "@/context/AuthContext";
 import { useDocumentMetadata } from "@/hooks/useDocumentMetadata";
 import { getListingUrl, copyUrlToClipboard, getSellerPath } from "@/config/urls";
 
-// Helper to retrieve custom multiple images for the listing gallery based on category to look highly realistic
-const getListingImages = (listing: Listing) => {
-  const base = listing.image;
-  const categoryImages: Record<string, string[]> = {
-    eletronica: [
-      "https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?auto=format&fit=crop&w=800&q=80",
-      "https://images.unsplash.com/photo-1523206489230-c012cdd4cc96?auto=format&fit=crop&w=800&q=80",
-      "https://images.unsplash.com/photo-1510557880182-3d4d3cba35a5?auto=format&fit=crop&w=800&q=80"
-    ],
-    viaturas: [
-      "https://images.unsplash.com/photo-1552519507-da3b142c6e3d?auto=format&fit=crop&w=800&q=80",
-      "https://images.unsplash.com/photo-1568605114967-8130f3a36994?auto=format&fit=crop&w=800&q=80",
-      "https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80"
-    ],
-    imoveis: [
-      "https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=800&q=80",
-      "https://images.unsplash.com/photo-1484154218962-a197022b5858?auto=format&fit=crop&w=800&q=80",
-      "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80"
-    ],
-    moda: [
-      "https://images.unsplash.com/photo-1490481651871-ab68de25d43d?auto=format&fit=crop&w=800&q=80",
-      "https://images.unsplash.com/photo-1509319117193-57bab727e09d?auto=format&fit=crop&w=800&q=80",
-      "https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=800&q=80"
-    ],
-    moveis: [
-      "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=800&q=80",
-      "https://images.unsplash.com/photo-1538688525198-9b88f6f53126?auto=format&fit=crop&w=800&q=80",
-      "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=800&q=80"
-    ],
-    desporto: [
-      "https://images.unsplash.com/photo-1517838277536-f5f99be501cd?auto=format&fit=crop&w=800&q=80",
-      "https://images.unsplash.com/photo-1517649763962-0c623066013b?auto=format&fit=crop&w=800&q=80",
-      "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=800&q=80"
-    ],
-    empregos: [
-      "https://images.unsplash.com/photo-1434030216411-0b793f4b4173?auto=format&fit=crop&w=800&q=80",
-      "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?auto=format&fit=crop&w=800&q=80",
-      "https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=800&q=80"
-    ],
-    servicos: [
-      "https://images.unsplash.com/photo-1621905251189-08b45d6a269e?auto=format&fit=crop&w=800&q=80",
-      "https://images.unsplash.com/photo-1581578731548-c64695cc6952?auto=format&fit=crop&w=800&q=80",
-      "https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=800&q=80"
-    ]
-  };
+// Retrieves ONLY the actual images belonging to the listing (no fake category stock photos)
+const getListingImages = (listing: Listing): string[] => {
+  const result: string[] = [];
 
-  const cats = categoryImages[listing.categoryId] || categoryImages["eletronica"];
-  return [base, ...cats];
+  // 1. Check if listing has a valid images array
+  if (Array.isArray(listing.images) && listing.images.length > 0) {
+    for (const img of listing.images) {
+      if (typeof img === "string" && img.trim() && !result.includes(img.trim())) {
+        result.push(img.trim());
+      }
+    }
+  } else if (typeof listing.images === "string") {
+    try {
+      const parsed = JSON.parse(listing.images);
+      if (Array.isArray(parsed)) {
+        for (const img of parsed) {
+          if (typeof img === "string" && img.trim() && !result.includes(img.trim())) {
+            result.push(img.trim());
+          }
+        }
+      }
+    } catch {
+      // not JSON string
+    }
+  }
+
+  // 2. Make sure the primary listing.image is included at the beginning
+  if (listing.image && typeof listing.image === "string" && listing.image.trim()) {
+    const mainImg = listing.image.trim();
+    if (!result.includes(mainImg)) {
+      result.unshift(mainImg);
+    }
+  }
+
+  // 3. Fallback placeholder if no image exists
+  if (result.length === 0) {
+    result.push("/placeholder.svg");
+  }
+
+  return result;
 };
 
 interface PriceCardProps {

@@ -8,10 +8,11 @@ import { Lock, ArrowRight, ShieldCheck, Clock } from "lucide-react";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
+  requireAdmin?: boolean;
 }
 
-export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
-  const { isAuthenticated, openAuthModal, loginWithGoogle } = useAuth();
+export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requireAdmin = false }) => {
+  const { isAuthenticated, isAdmin, openAuthModal } = useAuth();
   const location = useLocation();
 
   useEffect(() => {
@@ -35,7 +36,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
                 Acesso Restrito
               </h2>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Esta página requer início de sessão. Apenas utilizadores autenticados podem enviar mensagens e publicar anúncios na Aqkianda.
+                Esta página requer início de sessão. Apenas utilizadores autenticados podem aceder a esta funcionalidade na Aqkianda.
               </p>
             </div>
 
@@ -52,6 +53,39 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
                   </Button>
                 </Link>
               </div>
+            </div>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
+  if (requireAdmin && !isAdmin) {
+    return (
+      <div className="min-h-screen flex flex-col bg-background">
+        <Header />
+        <main className="flex-1 flex items-center justify-center p-4 py-12">
+          <div className="max-w-md w-full bg-card border border-border/60 rounded-3xl p-6 sm:p-8 shadow-xl text-center space-y-6">
+            <div className="mx-auto h-16 w-16 rounded-3xl bg-amber-500/10 text-amber-600 dark:text-amber-500 flex items-center justify-center">
+              <ShieldCheck className="h-8 w-8" />
+            </div>
+
+            <div className="space-y-2">
+              <h2 className="font-display font-bold text-2xl tracking-tight text-foreground">
+                Acesso de Administrador Necessário
+              </h2>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Esta área está reservada exclusivamente a Administradores e Moderadores autorizados da Aqkianda.
+              </p>
+            </div>
+
+            <div className="pt-2">
+              <Link to="/">
+                <Button className="w-full h-12 rounded-2xl bg-primary text-white font-bold text-xs sm:text-sm shadow-sm">
+                  Voltar à Página Principal
+                </Button>
+              </Link>
             </div>
           </div>
         </main>

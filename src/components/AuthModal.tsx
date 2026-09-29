@@ -6,12 +6,8 @@ import { Button } from "@/components/ui/button";
 import { ShieldCheck, MessageSquare, PlusCircle, ArrowRight, Loader2, Sparkles, Clock } from "lucide-react";
 
 export const AuthModal: React.FC = () => {
-  const { isAuthModalOpen, closeAuthModal, openGoogleModal, authModalRedirect } = useAuth();
+  const { isAuthModalOpen, closeAuthModal, authModalRedirect } = useAuth();
   const navigate = useNavigate();
-
-  const handleGoogleClick = () => {
-    openGoogleModal(authModalRedirect || undefined);
-  };
 
   const handleGoToLogin = () => {
     closeAuthModal();

@@ -13,7 +13,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { listings } from "@/data/listings";
 import { useDocumentMetadata } from "@/hooks/useDocumentMetadata";
 import ListingCard from "@/components/ListingCard";
-import { useAuth } from "@/context/AuthContext";
+import { useAuth, getAuthHeaders } from "@/context/AuthContext";
 import { compressImage } from "@/utils/imageCompression";
 
 interface PromoCampaign {
@@ -44,7 +44,7 @@ const Publicar = () => {
   const { toast } = useToast();
   const nav = useNavigate();
   const { id } = useParams();
-  const { isAuthenticated, openAuthModal, user: currentUser } = useAuth();
+  const { isAuthenticated, openAuthModal, user: currentUser, logout } = useAuth();
   const isEditing = Boolean(id);
 
   useDocumentMetadata({
@@ -263,7 +263,10 @@ const Publicar = () => {
         return;
       }
       try {
-        await fetch(`/api/listings/${id}`, { method: "DELETE" });
+        await fetch(`/api/listings/${id}`, { 
+          method: "DELETE",
+          headers: getAuthHeaders()
+        });
         if (existingItem) {
           const urlsToDelete: string[] = [];
           if (existingItem.image) urlsToDelete.push(existingItem.image);
@@ -273,7 +276,10 @@ const Publicar = () => {
           if (urlsToDelete.length > 0) {
             await fetch("/api/storage/delete", {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: { 
+                "Content-Type": "application/json",
+                ...getAuthHeaders()
+              },
               body: JSON.stringify({ urls: urlsToDelete })
             });
           }
@@ -340,7 +346,10 @@ const Publicar = () => {
         try {
           const res = await fetch("/api/upload", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { 
+              "Content-Type": "application/json",
+              ...getAuthHeaders()
+            },
             body: JSON.stringify({ image: img, name: `anuncio_${Date.now()}_${i}.jpg` })
           });
           if (res.ok) {
@@ -362,7 +371,10 @@ const Publicar = () => {
       try {
         await fetch("/api/storage/delete", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            ...getAuthHeaders()
+          },
           body: JSON.stringify({ urls: removedRemoteImages })
         });
       } catch (delErr) {
@@ -456,13 +468,19 @@ const Publicar = () => {
         if (isEditing && id) {
           await fetch(`/api/listings/${id}`, {
             method: "PUT",
-            headers: { "Content-Type": "application/json" },
+            headers: { 
+              "Content-Type": "application/json",
+              ...getAuthHeaders()
+            },
             body: JSON.stringify(newListing)
           });
         } else {
           await fetch("/api/listings", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { 
+              "Content-Type": "application/json",
+              ...getAuthHeaders()
+            },
             body: JSON.stringify(newListing)
           });
         }

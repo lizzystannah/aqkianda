@@ -149,6 +149,46 @@ export async function deleteR2Object(keyOrUrl: string, uploadsDir?: string): Pro
 }
 
 /**
+ * Validação rigorosa dos magic bytes do buffer de imagem para evitar Stored XSS e uploads arbitrários
+ */
+export function validateImageSignature(buf: Buffer): { valid: boolean; ext: string; mime: string } {
+  if (!buf || buf.length < 12) return { valid: false, ext: "", mime: "" };
+
+  // JPEG: FF D8 FF
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    return { valid: true, ext: "jpg", mime: "image/jpeg" };
+  }
+  // PNG: 89 50 4E 47
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+    return { valid: true, ext: "png", mime: "image/png" };
+  }
+  // WebP: RIFF .... WEBP
+  if (
+    buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+    buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50
+  ) {
+    return { valid: true, ext: "webp", mime: "image/webp" };
+  }
+
+  return { valid: false, ext: "", mime: "" };
+}
+
+export function sanitizeUploadFilename(rawName?: string, defaultExt: string = "jpg"): string {
+  const safeRandom = Math.random().toString(36).substring(2, 8);
+  if (!rawName) return `img_${Date.now()}_${safeRandom}.${defaultExt}`;
+  
+  const base = path.basename(rawName).replace(/[^a-zA-Z0-9._-]/g, "_");
+  const ext = path.extname(base).toLowerCase().replace(".", "");
+  const allowedExts = ["jpg", "jpeg", "png", "webp"];
+  
+  if (allowedExts.includes(ext)) {
+    const cleanBase = path.basename(base, path.extname(base)).substring(0, 40);
+    return `${cleanBase}_${Date.now()}_${safeRandom}.${ext === "jpeg" ? "jpg" : ext}`;
+  }
+  return `img_${Date.now()}_${safeRandom}.${defaultExt}`;
+}
+
+/**
  * Envia uma imagem para o Cloudflare R2 ou reverte para armazenamento local em disco.
  */
 export async function uploadImageToStorage(
@@ -163,14 +203,9 @@ export async function uploadImageToStorage(
 
   // Processar dados Base64 da imagem
   let buffer: Buffer;
-  let contentType = "image/jpeg";
-  let ext = "jpg";
 
   const match = imageInput.match(/^data:image\/([a-zA-Z0-9.+]+);base64,(.+)$/);
   if (match) {
-    const rawExt = match[1].toLowerCase();
-    ext = rawExt === "jpeg" ? "jpg" : rawExt.includes("png") ? "png" : rawExt.includes("webp") ? "webp" : "jpg";
-    contentType = `image/${ext === "jpg" ? "jpeg" : ext}`;
     buffer = Buffer.from(match[2], "base64");
   } else {
     try {
@@ -180,7 +215,15 @@ export async function uploadImageToStorage(
     }
   }
 
-  const filename = preferredFilename || `img_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
+  // Validação estrita de assinatura binária (Magic Bytes)
+  const validation = validateImageSignature(buffer);
+  if (!validation.valid) {
+    throw new Error("Ficheiro inválido. Apenas ficheiros de imagem genuínos (JPEG, PNG, WebP) são permitidos.");
+  }
+
+  const ext = validation.ext;
+  const contentType = validation.mime;
+  const filename = sanitizeUploadFilename(preferredFilename, ext);
   const config = getR2Config();
   const s3 = getS3Client();
 

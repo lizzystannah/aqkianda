@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { normalizePhoneNumber, isPhoneNumberInput } from "@/lib/phone";
 
 const Entrar = () => {
-  const { login, openGoogleModal } = useAuth();
+  const { login } = useAuth();
   const nav = useNavigate();
   const { toast } = useToast();
   const [searchParams] = useSearchParams();
@@ -163,10 +163,6 @@ const Entrar = () => {
     if (success) {
       nav(redirectTarget || "/");
     }
-  };
-
-  const handleGoogleLogin = () => {
-    openGoogleModal(redirectTarget);
   };
 
   return (

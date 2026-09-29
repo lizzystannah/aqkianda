@@ -10,7 +10,7 @@ import { Star, MapPin, Mail, Settings, Plus, Package, Heart, LogOut, Camera, Shi
 import { Link, useSearchParams, useParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/context/AuthContext";
+import { useAuth, getAuthHeaders } from "@/context/AuthContext";
 import { useDocumentMetadata } from "@/hooks/useDocumentMetadata";
 import { getSellerPath, getSellerUrl, copyUrlToClipboard, getProfileUrl } from "@/config/urls";
 
@@ -45,7 +45,7 @@ const Perfil = () => {
   const { toast } = useToast();
   const { name: routeName } = useParams();
   const navigate = useNavigate();
-  const { user, isAuthenticated, openAuthModal, logout, openGoogleModal, updateProfile } = useAuth();
+  const { user, isAuthenticated, openAuthModal, logout, updateProfile } = useAuth();
 
   const [localListings, setLocalListings] = useState<Listing[]>([]);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
@@ -287,7 +287,10 @@ const Perfil = () => {
 
       // Eliminar do backend e limpar imagens do Cloudflare R2
       try {
-        await fetch(`/api/listings/${listingId}`, { method: "DELETE" });
+        await fetch(`/api/listings/${listingId}`, { 
+          method: "DELETE",
+          headers: getAuthHeaders()
+        });
 
         // Como salvaguarda extra, se houver imagens locais no anúncio, purga do R2
         if (listingToDelete) {
@@ -299,7 +302,10 @@ const Perfil = () => {
           if (urlsToDelete.length > 0) {
             await fetch("/api/storage/delete", {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: { 
+                "Content-Type": "application/json",
+                ...getAuthHeaders()
+              },
               body: JSON.stringify({ urls: urlsToDelete })
             });
           }
