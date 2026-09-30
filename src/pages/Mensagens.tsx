@@ -1,198 +1,344 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import { Send, Search, ArrowLeft, Image as ImageIcon, X, Paperclip, ZoomIn, Lock, MessageSquare } from "lucide-react";
+import { Send, Search, ArrowLeft, X, Paperclip, ZoomIn, Lock, MessageSquare } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAuth, getAuthHeaders } from "@/context/AuthContext";
 import { compressImage } from "@/utils/imageCompression";
+import { useToast } from "@/hooks/use-toast";
 
-type Msg = { 
-  from: "me" | "them"; 
-  text?: string; 
-  image?: string; 
-  time: string; 
+type Msg = {
+  from: "me" | "them";
+  text?: string;
+  image?: string;
+  time: string;
 };
 
-const DEFAULT_CONVERSATIONS = [
-  { id: "1", name: "Tech Luanda", last: "Boa tarde, ainda está disponível?", time: "14:32", unread: 2, avatar: "TL", product: "iPhone 13 Pro Max 256GB" },
-  { id: "2", name: "Kalandula Motors", last: "Posso negociar o preço.", time: "12:18", unread: 0, avatar: "KM", product: "Toyota Hilux 2020 4x4" },
-  { id: "3", name: "Fashion Store", last: "Tenho do tamanho 42 sim 👟", time: "Ontem", unread: 0, avatar: "FS", product: "Ténis Nike Air Max" },
-  { id: "4", name: "Imobiliária Futuro", last: "Posso enviar mais fotos", time: "Seg", unread: 1, avatar: "IF", product: "Apartamento T3 Kilamba" },
-];
-
-const DEFAULT_MESSAGES: Record<string, Msg[]> = {
-  "1": [
-    { from: "them", text: "Boa tarde! Ainda tem disponível?", time: "14:30" },
-    { from: "me", text: "Olá! Sim, ainda está disponível.", time: "14:31" },
-    { from: "them", text: "Aceita troca por outro modelo?", time: "14:32" },
-  ],
-  "2": [
-    { from: "them", text: "Olá! Estou interessado no seu Toyota Hilux. Aceita negociar o preço?", time: "12:10" },
-    { from: "me", text: "Olá! Sim, posso negociar ligeiramente.", time: "12:15" },
-    { from: "them", text: "Posso negociar o preço.", time: "12:18" },
-  ],
-  "3": [
-    { from: "them", text: "Tem o Nike Air Max em tamanho 42?", time: "Ontem 10:00" },
-    { from: "me", text: "Sim, temos sim!", time: "Ontem 10:15" },
-    { from: "them", text: "Tenho do tamanho 42 sim 👟", time: "Ontem 10:16" },
-  ],
-  "4": [
-    { from: "them", text: "Olá! Gostaria de ver mais fotos do T3 Kilamba.", time: "Seg 11:20" },
-    { from: "me", text: "Olá! Vou providenciar as fotos.", time: "Seg 11:30" },
-    { from: "them", text: "Posso enviar mais fotos", time: "Seg 11:35" },
-    { from: "them", image: "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=800&q=80", text: "Aqui está uma foto da sala de estar.", time: "Seg 11:36" }
-  ]
+type Conversation = {
+  id: string;
+  name: string;
+  otherEmail: string;
+  last: string;
+  time: string;
+  unread: number;
+  avatar: string;
+  product: string;
+  listingId?: string;
 };
+
+type RouteState = {
+  sellerName?: string;
+  productName?: string;
+  sellerEmail?: string;
+  receiverEmail?: string;
+  sellerId?: string;
+  receiverId?: string;
+  listingId?: string;
+} | null;
+
+type ServerMessage = {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  senderName: string;
+  senderEmail: string;
+  receiverId?: string;
+  receiverEmail?: string;
+  listingId?: string;
+  productName?: string;
+  content: string;
+  image?: string;
+  createdAt: string;
+};
+
+function slugifyName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40) || "vendedor";
+}
+
+// ID de conversa determinístico: ambas as partes geram o mesmo ID,
+// por isso a mensagem aparece nos dois lados.
+function buildConversationId(listingId: string | undefined, emailA: string, emailB: string): string {
+  const a = (emailA || "").trim().toLowerCase();
+  const b = (emailB || "").trim().toLowerCase();
+  const lid = (listingId || "geral").trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").slice(0, 40) || "geral";
+  if (!b) return `dm_${a}_${lid}`.slice(0, 120);
+  const sorted = [a, b].sort();
+  return `lst_${lid}__${sorted[0]}__${sorted[1]}`.slice(0, 128);
+}
+
+function buildFallbackConversationId(listingId: string | undefined, sellerName: string, buyerEmail: string): string {
+  const lid = (listingId || "geral").trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").slice(0, 40) || "geral";
+  return `seller_${slugifyName(sellerName)}_${lid}__${buyerEmail.trim().toLowerCase()}`.slice(0, 128);
+}
+
+function avatarFor(name: string): string {
+  const parts = name.trim().split(/\s+/).map((w) => w.charAt(0)).join("").slice(0, 2).toUpperCase();
+  return parts || name.charAt(0).toUpperCase() || "?";
+}
+
+function formatTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso || "";
+    return d.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return iso || "";
+  }
+}
 
 const Mensagens = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { isAuthenticated, openAuthModal, user } = useAuth();
-  const routeState = location.state as { sellerName?: string; productName?: string } | null;
+  const { toast } = useToast();
+  const routeState = location.state as RouteState;
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const routeConsumedRef = useRef<string | null>(null);
 
-  // User-scoped storage keys
-  const getConvKey = () => (user?.email ? `aqkianda-conversations_${user.email.toLowerCase()}` : "aqkianda-conversations_guest");
-  const getMsgsKey = () => (user?.email ? `aqkianda-messages_${user.email.toLowerCase()}` : "aqkianda-messages_guest");
+  const myEmail = (user?.email || "").trim().toLowerCase();
 
-  const [searchQuery, setSearchQuery] = useState("");
-  const [conversationsList, setConversationsList] = useState<typeof DEFAULT_CONVERSATIONS>([]);
+  // Meta cache (apenas nomes/produtos — as mensagens vêm sempre do servidor)
+  const getMetaKey = useCallback(
+    () => (myEmail ? `aqkianda-convmeta_${myEmail}` : "aqkianda-convmeta_guest"),
+    [myEmail]
+  );
+
+  const [conversationsList, setConversationsList] = useState<Conversation[]>([]);
   const [messagesMap, setMessagesMap] = useState<Record<string, Msg[]>>({});
-  const [activeId, setActiveId] = useState<string>("1");
-
-  // Load user-scoped conversations
-  useEffect(() => {
-    const convKey = getConvKey();
-    const msgsKey = getMsgsKey();
-
-    try {
-      const savedConv = localStorage.getItem(convKey);
-      const savedMsgs = localStorage.getItem(msgsKey);
-
-      if (savedConv && savedMsgs) {
-        const parsedConv = JSON.parse(savedConv);
-        const parsedMsgs = JSON.parse(savedMsgs);
-        setConversationsList(parsedConv);
-        setMessagesMap(parsedMsgs);
-        if (parsedConv.length > 0) setActiveId(parsedConv[0].id);
-      } else {
-        // Welcome conversation for new exclusive account
-        const welcomeConv = [
-          {
-            id: `welcome-${Date.now()}`,
-            name: "Suporte Aqkianda",
-            last: "Bem-vindo à Aqkianda!",
-            time: "Agora",
-            unread: 1,
-            avatar: "AQ",
-            product: "Apoio ao Utilizador"
-          }
-        ];
-        const welcomeMsgs: Record<string, Msg[]> = {
-          [welcomeConv[0].id]: [
-            {
-              from: "them",
-              text: `Olá ${user?.name || "Utilizador"}! Bem-vindo(a) à Aqkianda. Este é o teu canal exclusivo de mensagens. Podes negociar produtos e serviços com segurança.`,
-              time: "Agora"
-            }
-          ]
-        };
-        setConversationsList(welcomeConv);
-        setMessagesMap(welcomeMsgs);
-        setActiveId(welcomeConv[0].id);
-        localStorage.setItem(convKey, JSON.stringify(welcomeConv));
-        localStorage.setItem(msgsKey, JSON.stringify(welcomeMsgs));
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  }, [user?.email]);
+  const [convMeta, setConvMeta] = useState<Record<string, { name: string; product: string; otherEmail: string; listingId?: string }>>({});
+  const [activeId, setActiveId] = useState<string>("");
+  const [loading, setLoading] = useState(true);
 
   const [mobileActiveView, setMobileActiveView] = useState<"list" | "chat">("list");
   const [text, setText] = useState("");
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sending, setSending] = useState(false);
+
+  // Carrega meta cache
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(getMetaKey());
+      if (raw) setConvMeta(JSON.parse(raw));
+      else setConvMeta({});
+    } catch {
+      setConvMeta({});
+    }
+  }, [getMetaKey]);
+
+  const persistMeta = useCallback(
+    (meta: Record<string, { name: string; product: string; otherEmail: string; listingId?: string }>) => {
+      try {
+        localStorage.setItem(getMetaKey(), JSON.stringify(meta));
+      } catch {
+        // quota cheia — ignora, servidor continua fonte de verdade
+      }
+    },
+    [getMetaKey]
+  );
+
+  const loadMessages = useCallback(async () => {
+    if (!myEmail) return;
+    try {
+      const res = await fetch(`/api/messages?user=${encodeURIComponent(myEmail)}`, {
+        headers: { ...getAuthHeaders() },
+      });
+      if (!res.ok) {
+        if (!loading) return;
+        setLoading(false);
+        return;
+      }
+      const data: ServerMessage[] = await res.json();
+      const grouped: Record<string, ServerMessage[]> = {};
+      for (const m of Array.isArray(data) ? data : []) {
+        const cid = (m.conversationId || "").trim().toLowerCase();
+        if (!cid) continue;
+        if (!grouped[cid]) grouped[cid] = [];
+        grouped[cid].push(m);
+      }
+      for (const cid of Object.keys(grouped)) {
+        grouped[cid].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      }
+
+      setConvMeta((prevMeta) => {
+        const nextMeta = { ...prevMeta };
+        const convs: Conversation[] = Object.entries(grouped).map(([cid, msgs]) => {
+          const first = msgs[0];
+          const lastMsg = msgs[msgs.length - 1];
+          // Descobre a outra parte
+          let otherEmail = "";
+          if (first.senderEmail?.toLowerCase() === myEmail) {
+            otherEmail = (first.receiverEmail || "").toLowerCase();
+          } else {
+            otherEmail = (first.senderEmail || "").toLowerCase();
+          }
+          const cached = nextMeta[cid] || prevMeta[cid];
+          // Nome: usa cache (nome do vendedor) ou nome do remetente real
+          let name = cached?.name || "";
+          if (!name) {
+            name = first.senderEmail?.toLowerCase() === myEmail
+              ? (otherEmail || "Vendedor")
+              : (first.senderName || otherEmail || "Utilizador");
+          }
+          const product = cached?.product || first.productName || "Geral";
+          const listingId = cached?.listingId || first.listingId;
+          if (!cached) {
+            nextMeta[cid] = { name, product, otherEmail, listingId };
+          } else {
+            // completa otherEmail se faltava
+            if (!cached.otherEmail && otherEmail) {
+              nextMeta[cid] = { ...cached, otherEmail };
+            }
+          }
+          const preview = lastMsg.image && !lastMsg.content?.trim() ? "📷 [Imagem enviada]" : (lastMsg.content || "").slice(0, 80);
+          return {
+            id: cid,
+            name,
+            otherEmail: nextMeta[cid]?.otherEmail || otherEmail,
+            last: preview || (lastMsg.image ? "📷 [Imagem]" : "—"),
+            time: formatTime(lastMsg.createdAt),
+            unread: 0,
+            avatar: avatarFor(name),
+            product,
+            listingId,
+          };
+        });
+        // Ordena pela última mensagem
+        convs.sort((a, b) => {
+          const ta = grouped[a.id][grouped[a.id].length - 1]?.createdAt || "";
+          const tb = grouped[b.id][grouped[b.id].length - 1]?.createdAt || "";
+          return new Date(tb).getTime() - new Date(ta).getTime();
+        });
+        persistMeta(nextMeta);
+
+        const nextMsgs: Record<string, Msg[]> = {};
+        for (const [cid, msgs] of Object.entries(grouped)) {
+          nextMsgs[cid] = msgs.map((m) => ({
+            from: (m.senderEmail || "").toLowerCase() === myEmail ? "me" : "them",
+            text: m.content || undefined,
+            image: m.image || undefined,
+            time: formatTime(m.createdAt),
+          }));
+        }
+
+        setMessagesMap((prev) => {
+          // Preserva conversa pendente local (sem mensagens no servidor ainda)
+          const merged = { ...nextMsgs };
+          for (const [cid, localMsgs] of Object.entries(prev)) {
+            if (!merged[cid] && localMsgs.length === 0) merged[cid] = localMsgs;
+          }
+          return merged;
+        });
+        setConversationsList((prev) => {
+          // Preserva conversa pendente que ainda não tem mensagens no servidor
+          const pending = prev.filter((c) => !grouped[c.id]);
+          const all = [...pending.filter((p) => (messagesMap[p.id] || []).length === 0 || true), ...convs];
+          // dedupe por id
+          const seen = new Set<string>();
+          return all.filter((c) => (seen.has(c.id) ? false : (seen.add(c.id), true)));
+        });
+        return nextMeta;
+      });
+      setLoading(false);
+    } catch (e) {
+      console.debug("Erro ao carregar mensagens:", e);
+      setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myEmail]);
+
+  // Carga inicial + polling (5s) para receber mensagens do outro lado
+  useEffect(() => {
+    if (!isAuthenticated || !myEmail) return;
+    setLoading(true);
+    loadMessages();
+    const t = setInterval(loadMessages, 5000);
+    return () => clearInterval(t);
+  }, [isAuthenticated, myEmail, loadMessages]);
+
+  // Consome o state vindo de Anúncio/Vendedor UMA única vez
+  useEffect(() => {
+    if (!routeState?.sellerName || !myEmail) return;
+    const key = JSON.stringify(routeState);
+    if (routeConsumedRef.current === key) return;
+    routeConsumedRef.current = key;
+
+    const sellerName = routeState.sellerName;
+    const productName = routeState.productName || "Geral";
+    const sellerEmail = (routeState.sellerEmail || routeState.receiverEmail || "").trim().toLowerCase();
+    const listingId = routeState.listingId;
+
+    if (sellerEmail && sellerEmail === myEmail) {
+      toast({ title: "É o teu próprio anúncio", description: "Não podes enviar mensagem a ti próprio." });
+      window.history.replaceState({}, document.title);
+      return;
+    }
+
+    const cid = sellerEmail
+      ? buildConversationId(listingId, myEmail, sellerEmail)
+      : buildFallbackConversationId(listingId, sellerName, myEmail);
+
+    setConvMeta((prev) => {
+      if (!prev[cid]) {
+        const next = { ...prev, [cid]: { name: sellerName, product: productName, otherEmail: sellerEmail, listingId } };
+        persistMeta(next);
+        return next;
+      }
+      return prev;
+    });
+
+    setConversationsList((prev) => {
+      if (prev.some((c) => c.id === cid)) return prev;
+      const nc: Conversation = {
+        id: cid,
+        name: sellerName,
+        otherEmail: sellerEmail,
+        last: "Clique para enviar uma mensagem.",
+        time: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+        unread: 0,
+        avatar: avatarFor(sellerName),
+        product: productName,
+        listingId,
+      };
+      return [nc, ...prev];
+    });
+    setMessagesMap((prev) => (prev[cid] ? prev : { ...prev, [cid]: [] }));
+    setActiveId(cid);
+    setMobileActiveView("chat");
+    window.history.replaceState({}, document.title);
+  }, [routeState, myEmail, persistMeta, toast]);
+
+  // Seleciona a primeira conversa quando carrega
+  useEffect(() => {
+    if (!activeId && conversationsList.length > 0) {
+      setActiveId(conversationsList[0].id);
+    }
+  }, [conversationsList, activeId]);
 
   const active = conversationsList.find((c) => c.id === activeId) || conversationsList[0];
-  const msgs = messagesMap[activeId] || [];
+  const msgs = (active && messagesMap[active.id]) || [];
 
-  // Scroll to bottom when msgs change
   useEffect(() => {
     if (chatScrollRef.current) {
       chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
     }
   }, [messagesMap, attachedImage, activeId]);
 
-  // Check route state on load/change
-  useEffect(() => {
-    if (routeState && routeState.sellerName && routeState.productName) {
-      const { sellerName, productName } = routeState;
-      const existing = conversationsList.find(
-        (c) =>
-          c.name.toLowerCase() === sellerName.toLowerCase() &&
-          c.product.toLowerCase() === productName.toLowerCase()
-      );
-
-      if (existing) {
-        setActiveId(existing.id);
-        setMobileActiveView("chat");
-      } else {
-        const newId = `custom-${Date.now()}`;
-        const newConv = {
-          id: newId,
-          name: sellerName,
-          last: "Clique para enviar uma mensagem.",
-          time: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
-          unread: 0,
-          avatar: sellerName
-            .split(" ")
-            .map((w) => w.charAt(0))
-            .join("")
-            .slice(0, 2)
-            .toUpperCase() || sellerName.charAt(0).toUpperCase(),
-          product: productName,
-        };
-
-        const newMsgs: Msg[] = [
-          {
-            from: "them",
-            text: `Olá! Sou o(a) vendedor(a) de: "${productName}". Como posso ajudar?`,
-            time: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
-          },
-        ];
-
-        const updatedConversations = [newConv, ...conversationsList];
-        const updatedMessagesMap = { ...messagesMap, [newId]: newMsgs };
-
-        setConversationsList(updatedConversations);
-        setMessagesMap(updatedMessagesMap);
-        setActiveId(newId);
-        setMobileActiveView("chat");
-
-        localStorage.setItem("aqkianda-conversations", JSON.stringify(updatedConversations));
-        localStorage.setItem("aqkianda-messages", JSON.stringify(updatedMessagesMap));
-      }
-
-      // Clear router state from history
-      window.history.replaceState({}, document.title);
-    }
-  }, [routeState, conversationsList, messagesMap]);
-
-  const handleSelectConversation = (c: typeof DEFAULT_CONVERSATIONS[0]) => {
+  const handleSelectConversation = (c: Conversation) => {
     setActiveId(c.id);
     setAttachedImage(null);
-    
-    // Clear unread count on select
-    if (c.unread > 0) {
-      const updated = conversationsList.map((conv) => (conv.id === c.id ? { ...conv, unread: 0 } : conv));
-      setConversationsList(updated);
-      localStorage.setItem("aqkianda-conversations", JSON.stringify(updated));
-    }
-    
     setMobileActiveView("chat");
   };
 
@@ -202,12 +348,11 @@ const Mensagens = () => {
       try {
         const compressed = await compressImage(file, { maxDimension: 1200, quality: 0.82 });
         if (!compressed) return;
-
         try {
           const res = await fetch("/api/upload", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ image: compressed, name: file.name })
+            body: JSON.stringify({ image: compressed, name: file.name }),
           });
           if (res.ok) {
             const data = await res.json();
@@ -219,7 +364,6 @@ const Mensagens = () => {
         } catch (uploadErr) {
           console.debug("Chat image upload fallback:", uploadErr);
         }
-
         setAttachedImage(compressed);
       } catch (err) {
         console.error("Erro ao comprimir imagem de mensagem:", err);
@@ -227,78 +371,79 @@ const Mensagens = () => {
     }
   };
 
-  const send = (e: React.FormEvent) => {
+  const send = async (e: React.FormEvent) => {
     e.preventDefault();
-    if ((!text.trim() && !attachedImage) || !active) return;
+    if ((!text.trim() && !attachedImage) || !active || sending) return;
+    if (!isAuthenticated) {
+      openAuthModal("/mensagens");
+      return;
+    }
+
+    const content = text.trim() || (attachedImage ? "[Imagem]" : "");
+    if (!content && !attachedImage) return;
+
+    // Sem email do destinatário não há entrega — avisa em vez de simular
+    if (!active.otherEmail) {
+      toast({
+        variant: "destructive",
+        title: "Vendedor sem email registado",
+        description: "Este anúncio ainda não tem conta associada. A mensagem ficará guardada mas o vendedor só a verá quando registar esse email.",
+      });
+    }
 
     const currentTime = new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
-    const newMsg: Msg = { 
-      from: "me", 
-      text: text.trim() || undefined, 
-      image: attachedImage || undefined,
-      time: currentTime 
-    };
+    const optimistic: Msg = { from: "me", text: content || undefined, image: attachedImage || undefined, time: currentTime };
 
-    const updatedMsgs = [...msgs, newMsg];
-    const newMessagesMap = { ...messagesMap, [active.id]: updatedMsgs };
-    
-    setMessagesMap(newMessagesMap);
-    localStorage.setItem(getMsgsKey(), JSON.stringify(newMessagesMap));
-
-    const lastPreview = attachedImage ? "📷 [Imagem enviada]" : text.trim();
-
-    // Update conversation last text and time
-    const updatedList = conversationsList.map((c) => {
-      if (c.id === active.id) {
-        return {
-          ...c,
-          last: lastPreview,
-          time: currentTime,
-          unread: 0,
-        };
+    setMessagesMap((prev) => ({ ...prev, [active.id]: [...(prev[active.id] || []), optimistic] }));
+    setConversationsList((prev) => {
+      const updated = prev.map((c) => (c.id === active.id ? { ...c, last: attachedImage && !text.trim() ? "📷 [Imagem enviada]" : content, time: currentTime } : c));
+      const idx = updated.findIndex((c) => c.id === active.id);
+      if (idx > 0) {
+        const [conv] = updated.splice(idx, 1);
+        updated.unshift(conv);
       }
-      return c;
+      return updated;
     });
-
-    // Bring active conversation to top
-    const activeIndex = updatedList.findIndex((c) => c.id === active.id);
-    if (activeIndex > -1) {
-      const [activeConv] = updatedList.splice(activeIndex, 1);
-      updatedList.unshift(activeConv);
-    }
-
-    setConversationsList(updatedList);
-    localStorage.setItem(getConvKey(), JSON.stringify(updatedList));
-
-    // Sync to backend MySQL API
-    try {
-      fetch("/api/messages", {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          ...getAuthHeaders()
-        },
-        body: JSON.stringify({
-          conversationId: active.id,
-          productName: active.product || "Geral",
-          content: text.trim() || "[Imagem]",
-          image: attachedImage || undefined,
-          isFromBuyer: true
-        })
-      }).catch(err => console.debug("API message sync:", err));
-    } catch (e) {
-      console.debug("Backend chat sync:", e);
-    }
-
     setText("");
+    const imgToSend = attachedImage;
     setAttachedImage(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
+
+    setSending(true);
+    try {
+      const meta = convMeta[active.id];
+      const res = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({
+          conversationId: active.id,
+          receiverEmail: active.otherEmail || undefined,
+          receiverId: routeState?.receiverId || routeState?.sellerId || undefined,
+          listingId: active.listingId || meta?.listingId || routeState?.listingId || undefined,
+          productName: active.product || "Geral",
+          content,
+          image: imgToSend || undefined,
+          isFromBuyer: true,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as { error?: string }).error || "Falha ao enviar");
+      }
+      // Recarrega para confirmar persistência no servidor
+      loadMessages();
+    } catch (err) {
+      console.error("Erro ao enviar mensagem:", err);
+      toast({ variant: "destructive", title: "Não foi possível entregar", description: "Verifica a ligação e tenta novamente." });
+      // Reverte otimismo em caso de falha
+      setMessagesMap((prev) => ({ ...prev, [active.id]: (prev[active.id] || []).filter((m) => m !== optimistic) }));
+    } finally {
+      setSending(false);
+    }
   };
 
   const filteredConversations = conversationsList.filter(
-    (c) =>
-      c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.product.toLowerCase().includes(searchQuery.toLowerCase())
+    (c) => c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.product.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   if (!isAuthenticated) {
@@ -310,35 +455,20 @@ const Mensagens = () => {
             <div className="h-14 w-14 sm:h-16 sm:w-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-5 shadow-sm border border-primary/20">
               <Lock className="h-7 w-7 sm:h-8 sm:w-8" />
             </div>
-            <h1 className="text-xl sm:text-2xl font-bold text-foreground mb-2">
-              Mensagens Privadas
-            </h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-foreground mb-2">Mensagens Privadas</h1>
             <p className="text-muted-foreground text-xs sm:text-sm mb-6 leading-relaxed">
               Para veres o teu histórico de conversas, negociar artigos e comunicar em segurança com vendedores ou compradores em Angola, inicia sessão.
             </p>
-            
             <div className="w-full space-y-3">
               <div className="grid grid-cols-2 gap-2 pt-1">
-                <Button 
-                  variant="outline"
-                  onClick={() => navigate("/entrar?redirect=/mensagens")}
-                  className="w-full h-10 font-semibold rounded-xl text-xs"
-                >
+                <Button variant="outline" onClick={() => navigate("/entrar?redirect=/mensagens")} className="w-full h-10 font-semibold rounded-xl text-xs">
                   Fazer Login
                 </Button>
-                <Button 
-                  onClick={() => navigate("/registar?redirect=/mensagens")}
-                  className="w-full h-10 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-xl text-xs shadow-sm"
-                >
+                <Button onClick={() => navigate("/registar?redirect=/mensagens")} className="w-full h-10 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-xl text-xs shadow-sm">
                   Criar Conta
                 </Button>
               </div>
-
-              <Button 
-                variant="ghost"
-                onClick={() => navigate("/")}
-                className="w-full h-9 font-medium text-xs text-muted-foreground hover:text-foreground mt-2"
-              >
+              <Button variant="ghost" onClick={() => navigate("/")} className="w-full h-9 font-medium text-xs text-muted-foreground hover:text-foreground mt-2">
                 Voltar à Página Inicial
               </Button>
             </div>
@@ -364,13 +494,7 @@ const Mensagens = () => {
           <h1 className="font-display font-bold text-xl sm:text-3xl">Mensagens</h1>
         </div>
         <div className="flex-1 grid md:grid-cols-[320px_1fr] bg-card rounded-none sm:rounded-3xl border-y sm:border border-border/40 shadow-card overflow-hidden h-[calc(100vh-130px)] sm:h-[650px]">
-          
-          {/* Conversas Sidebar (List) */}
-          <aside
-            className={`border-r border-border/40 flex flex-col h-full ${
-              mobileActiveView === "list" ? "flex w-full" : "hidden md:flex"
-            }`}
-          >
+          <aside className={`border-r border-border/40 flex flex-col h-full ${mobileActiveView === "list" ? "flex w-full" : "hidden md:flex"}`}>
             <div className="p-4 border-b border-border/40">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -383,16 +507,19 @@ const Mensagens = () => {
               </div>
             </div>
             <div className="flex-1 overflow-y-auto">
-              {filteredConversations.length === 0 ? (
-                <div className="p-6 text-center text-sm text-muted-foreground">Nenhuma conversa encontrada</div>
+              {loading ? (
+                <div className="p-6 text-center text-sm text-muted-foreground">A carregar conversas…</div>
+              ) : filteredConversations.length === 0 ? (
+                <div className="p-6 text-center text-sm text-muted-foreground flex flex-col items-center gap-2">
+                  <MessageSquare className="h-8 w-8 opacity-30" />
+                  {searchQuery ? "Nenhuma conversa encontrada" : "Ainda não tens conversas. Abre um anúncio e clica em “Falar com o vendedor”."}
+                </div>
               ) : (
                 filteredConversations.map((c) => (
                   <button
                     key={c.id}
                     onClick={() => handleSelectConversation(c)}
-                    className={`w-full flex items-center gap-3 p-4 text-left border-b border-border/40 hover:bg-muted/50 transition-smooth ${
-                      active && active.id === c.id ? "bg-muted" : ""
-                    }`}
+                    className={`w-full flex items-center gap-3 p-4 text-left border-b border-border/40 hover:bg-muted/50 transition-smooth ${active && active.id === c.id ? "bg-muted" : ""}`}
                   >
                     <div className="h-12 w-12 rounded-full gradient-hero flex items-center justify-center font-display font-bold text-primary-foreground shrink-0">
                       {c.avatar}
@@ -416,13 +543,8 @@ const Mensagens = () => {
             </div>
           </aside>
 
-          {/* Janela de Chat Ativo */}
           {active ? (
-            <div
-              className={`flex flex-col h-full flex-1 ${
-                mobileActiveView === "chat" ? "flex w-full" : "hidden md:flex"
-              }`}
-            >
+            <div className={`flex flex-col h-full flex-1 ${mobileActiveView === "chat" ? "flex w-full" : "hidden md:flex"}`}>
               <header className="flex items-center gap-3 p-4 border-b border-border/40 bg-card">
                 <button
                   onClick={() => setMobileActiveView("list")}
@@ -431,60 +553,59 @@ const Mensagens = () => {
                 >
                   <ArrowLeft className="h-5 w-5" />
                 </button>
-
                 <div className="h-10 w-10 rounded-full gradient-hero flex items-center justify-center font-display font-bold text-primary-foreground shrink-0">
                   {active.avatar}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-sm sm:text-base truncate text-foreground">{active.name}</div>
-                  <div className="text-[10px] text-accent flex items-center gap-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" /> Online ·{" "}
-                    <span className="text-muted-foreground truncate block max-w-[150px] sm:max-w-xs">{active.product}</span>
+                  <div className="text-[10px] text-muted-foreground truncate max-w-[220px] sm:max-w-xs">
+                    📦 {active.product}
+                    {active.otherEmail ? ` · ${active.otherEmail}` : " · sem email do vendedor"}
                   </div>
                 </div>
               </header>
 
-              {/* Balões de Mensagem */}
               <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3 bg-muted/20">
-                {msgs.map((m, i) => (
-                  <div key={i} className={`flex ${m.from === "me" ? "justify-end" : "justify-start"}`}>
-                    <div
-                      className={`max-w-[85%] sm:max-w-[70%] p-3 sm:p-4 rounded-2xl ${
-                        m.from === "me"
-                          ? "bg-primary text-primary-foreground rounded-br-sm shadow-sm"
-                          : "bg-card text-foreground rounded-bl-sm shadow-sm border border-border/20"
-                      }`}
-                    >
-                      {/* Image render if attached */}
-                      {m.image && (
-                        <div className="relative group mb-2 overflow-hidden rounded-xl border border-black/10 dark:border-white/10 max-w-sm">
-                          <img
-                            src={m.image}
-                            alt="Imagem enviada"
-                            className="w-full h-auto max-h-72 object-cover rounded-xl cursor-pointer transition-transform duration-200 group-hover:scale-105"
-                            onClick={() => setZoomedImage(m.image!)}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setZoomedImage(m.image!)}
-                            className="absolute bottom-2 right-2 bg-black/60 text-white p-1.5 rounded-full backdrop-blur-md opacity-80 hover:opacity-100 transition-opacity"
-                            title="Expandir imagem"
-                          >
-                            <ZoomIn className="h-4 w-4" />
-                          </button>
-                        </div>
-                      )}
-
-                      {m.text && (
-                        <p className="text-xs sm:text-sm leading-relaxed whitespace-pre-wrap">{m.text}</p>
-                      )}
-                      <span className="text-[9px] opacity-70 mt-1 block text-right">{m.time}</span>
-                    </div>
+                {msgs.length === 0 ? (
+                  <div className="text-center text-xs text-muted-foreground py-8">
+                    Sem mensagens ainda. Escreve a primeira mensagem — ela será entregue à conta {active.otherEmail || "do vendedor"}.
                   </div>
-                ))}
+                ) : (
+                  msgs.map((m, i) => (
+                    <div key={i} className={`flex ${m.from === "me" ? "justify-end" : "justify-start"}`}>
+                      <div
+                        className={`max-w-[85%] sm:max-w-[70%] p-3 sm:p-4 rounded-2xl ${
+                          m.from === "me"
+                            ? "bg-primary text-primary-foreground rounded-br-sm shadow-sm"
+                            : "bg-card text-foreground rounded-bl-sm shadow-sm border border-border/20"
+                        }`}
+                      >
+                        {m.image && (
+                          <div className="relative group mb-2 overflow-hidden rounded-xl border border-black/10 dark:border-white/10 max-w-sm">
+                            <img
+                              src={m.image}
+                              alt="Imagem enviada"
+                              className="w-full h-auto max-h-72 object-cover rounded-xl cursor-pointer transition-transform duration-200 group-hover:scale-105"
+                              onClick={() => setZoomedImage(m.image!)}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setZoomedImage(m.image!)}
+                              className="absolute bottom-2 right-2 bg-black/60 text-white p-1.5 rounded-full backdrop-blur-md opacity-80 hover:opacity-100 transition-opacity"
+                              title="Expandir imagem"
+                            >
+                              <ZoomIn className="h-4 w-4" />
+                            </button>
+                          </div>
+                        )}
+                        {m.text && <p className="text-xs sm:text-sm leading-relaxed whitespace-pre-wrap">{m.text}</p>}
+                        <span className="text-[9px] opacity-70 mt-1 block text-right">{m.time}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
 
-              {/* Attached Image Preview Bar */}
               {attachedImage && (
                 <div className="px-4 pt-3 bg-card border-t border-border/20 flex items-center gap-3">
                   <div className="relative h-16 w-16 rounded-xl overflow-hidden border border-border shadow-sm group bg-muted shrink-0">
@@ -505,16 +626,8 @@ const Mensagens = () => {
                 </div>
               )}
 
-              {/* Input Form */}
               <form onSubmit={send} className="flex items-center gap-2 p-3 sm:p-4 border-t border-border/40 bg-card">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileChange}
-                  className="hidden"
-                />
-
+                <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
                 <Button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
@@ -525,18 +638,16 @@ const Mensagens = () => {
                 >
                   <Paperclip className="h-5 w-5" />
                 </Button>
-
                 <Input
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                   placeholder={attachedImage ? "Adicionar legenda à imagem..." : "Escreva uma mensagem..."}
                   className="flex-1 h-11 rounded-full bg-muted border-transparent text-foreground text-xs sm:text-sm px-4 focus-visible:ring-primary/20"
                 />
-
                 <Button
                   type="submit"
                   size="icon"
-                  disabled={!text.trim() && !attachedImage}
+                  disabled={(!text.trim() && !attachedImage) || sending}
                   className="h-11 w-11 rounded-full bg-primary hover:bg-primary/90 text-white shrink-0 active:scale-95 transition-transform disabled:opacity-50"
                 >
                   <Send className="h-4 w-4" />
@@ -548,22 +659,13 @@ const Mensagens = () => {
               <p>Selecione uma conversa para começar a falar</p>
             </div>
           )}
-
         </div>
       </section>
 
-      {/* Modal Lightbox para Zoom na Imagem */}
       {zoomedImage && (
-        <div 
-          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4"
-          onClick={() => setZoomedImage(null)}
-        >
+        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4" onClick={() => setZoomedImage(null)}>
           <div className="relative max-w-4xl max-h-[90vh] w-full flex items-center justify-center">
-            <img 
-              src={zoomedImage} 
-              alt="Imagem ampliada" 
-              className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl"
-            />
+            <img src={zoomedImage} alt="Imagem ampliada" className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl" />
             <button
               onClick={() => setZoomedImage(null)}
               className="absolute -top-12 right-0 bg-white/20 text-white p-2 rounded-full hover:bg-white/40 transition-colors"

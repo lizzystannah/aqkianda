@@ -164,7 +164,7 @@ const PriceCard = ({
               return;
             }
             incrementListingClick(listing.id, "general");
-            nav("/mensagens", { state: { sellerName: listing.seller, productName: listing.title } });
+            nav("/mensagens", { state: { sellerName: listing.seller, productName: listing.title, sellerEmail: listing.sellerEmail, sellerId: (listing as unknown as { sellerId?: string }).sellerId, listingId: listing.id } });
           }}
         >
           <MessageCircle className="h-4 w-4 mr-1.5 shrink-0" /> Falar com o vendedor

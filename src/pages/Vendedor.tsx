@@ -145,7 +145,7 @@ const Vendedor = () => {
                     openAuthModal(`/vendedor/${name}`);
                     return;
                   }
-                  navigate("/mensagens", { state: { sellerName, productName: sellerListings[0]?.title || "Geral" } });
+                  navigate("/mensagens", { state: { sellerName, productName: sellerListings[0]?.title || "Geral", sellerEmail: sellerListings[0]?.sellerEmail, sellerId: sellerListings[0]?.sellerId, listingId: sellerListings[0]?.id } });
                 }}
                 className="h-11 bg-primary hover:bg-primary/90 text-white font-bold px-6 rounded-xl shadow-md flex items-center justify-center gap-2"
               >

@@ -19,6 +19,7 @@ import {
   updateDbUserProfile,
   getSecurityQuestionForUser,
   resetPasswordWithSecurityAnswer,
+  changeDbUserPassword,
   getAllDbUsers,
   updateDbUserStatus,
   getAllDbListings,
@@ -67,6 +68,9 @@ export interface JwtUserPayload {
   email: string;
   role: string;
   name: string;
+  // Versão de token por utilizador: incrementada a cada troca de palavra-passe.
+  // Tokens antigos (sem tv) valem como versão 1 para não expulsar sessões no deploy.
+  tv: number;
 }
 
 /* eslint-disable @typescript-eslint/no-namespace */
@@ -100,45 +104,82 @@ export function verifyToken(token: string): JwtUserPayload | null {
   }
 }
 
-// Middleware de Autenticação Obrigatória
-export function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+// Validação completa de um JWT: assinatura + versão global + versão por utilizador.
+// A versão por utilizador (tv) é incrementada a cada troca de palavra-passe,
+// invalidando na hora todos os tokens antigos dessa conta (sessões roubadas incluídas).
+async function authenticateRequest(req: express.Request): Promise<JwtUserPayload | null> {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Sessão não autenticada. Por favor, inicie sessão." });
+    return null;
   }
 
   const token = authHeader.split(" ")[1];
   const decoded = verifyToken(token);
   if (!decoded) {
+    return null;
+  }
+
+  try {
+    const user = await findDbUserByEmail(decoded.email);
+    const expected = user?.tokenVersion ?? 1;
+    const actual = decoded.tv ?? 1;
+    if (actual !== expected) {
+      return null;
+    }
+  } catch {
+    // BD inacessível de forma inesperada: não bloquear sessão criptograficamente
+    // válida (o sistema tolera falhas do MySQL com fallback em memória).
+    // findDbUserByEmail já trata os casos normais sem lançar.
+  }
+
+  return decoded;
+}
+
+// Middleware de Autenticação Obrigatória
+export async function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Sessão não autenticada. Por favor, inicie sessão." });
+  }
+
+  const user = await authenticateRequest(req);
+  if (!user) {
     return res.status(401).json({ error: "Sessão expirada ou inválida. Por favor, volte a autenticar-se." });
   }
 
-  req.user = decoded;
+  req.user = user;
   next();
 }
 
 // Middleware de Autenticação Opcional
 export function optionalAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith("Bearer ")) {
-    const token = authHeader.split(" ")[1];
-    const decoded = verifyToken(token);
-    if (decoded) {
-      req.user = decoded;
-    }
-  }
-  next();
+  authenticateRequest(req)
+    .then((user) => {
+      if (user) {
+        req.user = user;
+      }
+      next();
+    })
+    .catch(() => next());
 }
 
 // Middleware de Permissões de Administrador
-export function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
-  requireAuth(req, res, () => {
-    const user = req.user;
-    if (user && (user.role === "admin" || isAdminEmail(user.email))) {
-      return next();
-    }
-    return res.status(403).json({ error: "Acesso restrito a Administradores da Aqkianda." });
-  });
+export async function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Sessão não autenticada. Por favor, inicie sessão." });
+  }
+
+  const user = await authenticateRequest(req);
+  if (!user) {
+    return res.status(401).json({ error: "Sessão expirada ou inválida. Por favor, volte a autenticar-se." });
+  }
+
+  req.user = user;
+  if (user.role === "admin" || isAdminEmail(user.email)) {
+    return next();
+  }
+  return res.status(403).json({ error: "Acesso restrito a Administradores da Aqkianda." });
 }
 
 // Limitadores de taxa (Rate Limiting) para prevenção de ataques de força bruta e abusos
@@ -782,11 +823,12 @@ async function startServer() {
         id: user.id,
         email: user.email,
         role: user.role || "user",
-        name: user.name
+        name: user.name,
+        tv: user.tokenVersion ?? 1
       });
 
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         token,
         user: {
           id: user.id,
@@ -797,7 +839,7 @@ async function startServer() {
           avatar: user.avatar,
           location: user.location,
           securityQuestion: user.securityQuestion
-        } 
+        }
       });
     } catch (error) {
       console.error("Erro ao registar utilizador:", error);
@@ -843,7 +885,8 @@ async function startServer() {
           id: user.id,
           email: user.email,
           role: user.role || "user",
-          name: user.name
+          name: user.name,
+          tv: user.tokenVersion ?? 1
         });
 
         return res.json({ 
@@ -989,6 +1032,35 @@ async function startServer() {
       return res.json({ success: true, message: "Palavra-passe atualizada com sucesso!" });
     } catch (error) {
       console.error("Erro ao redefinir palavra-passe:", error);
+      res.status(500).json({ error: "Erro ao atualizar a palavra-passe." });
+    }
+  });
+
+  // Alteração de palavra-passe por utilizador autenticado
+  app.post("/api/auth/change-password", authLimiter, requireAuth, async (req, res) => {
+    try {
+      const currentUser = req.user!;
+      const { currentPassword, newPassword } = req.body;
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({ error: "A palavra-passe atual e a nova são obrigatórias." });
+      }
+      const result = await changeDbUserPassword(currentUser.email, currentPassword, newPassword);
+      if (!result.ok) {
+        const status = result.error === "A palavra-passe atual está incorreta." ? 401 : 400;
+        return res.status(status).json({ error: result.error });
+      }
+      // Novo token com a versão atualizada: este dispositivo continua logado,
+      // todos os outros tokens desta conta morrem na hora.
+      const freshToken = generateToken({
+        id: currentUser.id,
+        email: currentUser.email,
+        role: currentUser.role,
+        name: currentUser.name,
+        tv: result.tokenVersion ?? 1
+      });
+      return res.json({ success: true, message: "Palavra-passe atualizada com sucesso!", token: freshToken });
+    } catch (error) {
+      console.error("Erro ao alterar palavra-passe:", error);
       res.status(500).json({ error: "Erro ao atualizar a palavra-passe." });
     }
   });

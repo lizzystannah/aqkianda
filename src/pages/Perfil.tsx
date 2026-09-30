@@ -10,7 +10,7 @@ import { Star, MapPin, Mail, Settings, Plus, Package, Heart, LogOut, Camera, Shi
 import { Link, useSearchParams, useParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth, getAuthHeaders } from "@/context/AuthContext";
+import { useAuth, getAuthHeaders, AUTH_TOKEN_KEY } from "@/context/AuthContext";
 import { useDocumentMetadata } from "@/hooks/useDocumentMetadata";
 import { getSellerPath, getSellerUrl, copyUrlToClipboard, getProfileUrl } from "@/config/urls";
 
@@ -72,6 +72,84 @@ const Perfil = () => {
   const [selectedPromoId, setSelectedPromoId] = useState("");
   const [selectedDiscount, setSelectedDiscount] = useState<number>(20);
   const [isProfileShared, setIsProfileShared] = useState(false);
+
+  // Segurança: alterar palavra-passe
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
+
+  // Segurança: sessões ativas
+  const [isSessionsModalOpen, setIsSessionsModalOpen] = useState(false);
+
+  const handleChangePassword = async () => {
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      toast({ variant: "destructive", title: "Campos obrigatórios", description: "Preenche a palavra-passe atual e a nova." });
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast({ variant: "destructive", title: "Palavra-passe fraca", description: "A nova palavra-passe deve ter pelo menos 6 caracteres." });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast({ variant: "destructive", title: "Confirmação diferente", description: "A nova palavra-passe e a confirmação não coincidem." });
+      return;
+    }
+    setChangingPassword(true);
+    try {
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ variant: "destructive", title: "Não foi possível alterar", description: data.error || "Verifica a palavra-passe atual e tenta novamente." });
+        return;
+      }
+      // Novo token (nova versão): este dispositivo continua logado, os outros são expulsos
+      if (data.token) {
+        localStorage.setItem(AUTH_TOKEN_KEY, data.token);
+      }
+      toast({ title: "Palavra-passe atualizada!", description: "Todas as outras sessões desta conta foram terminadas." });
+      setIsPasswordModalOpen(false);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch {
+      toast({ variant: "destructive", title: "Erro de ligação", description: "Não foi possível contactar o servidor. Tenta novamente." });
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
+  const getSessionInfo = () => {
+    const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+    let device = "Dispositivo desconhecido";
+    if (/Android/i.test(ua)) device = "Android";
+    else if (/iPhone|iPad|iPod/i.test(ua)) device = "iPhone / iPad";
+    else if (/Windows/i.test(ua)) device = "Computador Windows";
+    else if (/Macintosh|Mac OS/i.test(ua)) device = "Computador Mac";
+    else if (/Linux/i.test(ua)) device = "Computador Linux";
+    let browser = "Navegador";
+    if (/Edg\//i.test(ua)) browser = "Microsoft Edge";
+    else if (/Chrome\//i.test(ua)) browser = "Google Chrome";
+    else if (/Safari\//i.test(ua) && !/Chrome\//i.test(ua)) browser = "Safari";
+    else if (/Firefox\//i.test(ua)) browser = "Firefox";
+    else if (/Opera|OPR\//i.test(ua)) browser = "Opera";
+    let startedAt = "Sessão atual";
+    try {
+      const raw = localStorage.getItem("aqkianda-last-activity");
+      if (raw) {
+        const t = parseInt(raw, 10);
+        if (!isNaN(t)) startedAt = `Ativa desde ${new Date(t).toLocaleString("pt-AO")}`;
+      }
+    } catch {
+      // ignora
+    }
+    return { device: `${browser} · ${device}`, startedAt };
+  };
 
   useDocumentMetadata({
     title: user?.name ? `Perfil de ${user.name}` : "Meu Perfil",
@@ -773,7 +851,7 @@ const Perfil = () => {
                         <p className="text-xs text-muted-foreground">Altera a tua palavra-passe regularmente</p>
                       </div>
                     </div>
-                    <Button variant="outline" size="sm" className="rounded-full">Alterar</Button>
+                    <Button variant="outline" size="sm" className="rounded-full" onClick={() => setIsPasswordModalOpen(true)}>Alterar</Button>
                   </div>
                   <div className="flex items-center justify-between p-4 rounded-2xl bg-muted/50">
                     <div className="flex items-center gap-3">
@@ -785,7 +863,7 @@ const Perfil = () => {
                         <p className="text-xs text-muted-foreground">Adiciona uma camada extra de segurança</p>
                       </div>
                     </div>
-                    <Button variant="outline" size="sm" className="rounded-full">Ativar</Button>
+                    <Button variant="outline" size="sm" className="rounded-full" onClick={() => toast({ title: "Em breve", description: "A autenticação de dois fatores estará disponível numa próxima atualização." })}>Ativar</Button>
                   </div>
                   <div className="flex items-center justify-between p-4 rounded-2xl bg-muted/50">
                     <div className="flex items-center gap-3">
@@ -797,7 +875,7 @@ const Perfil = () => {
                         <p className="text-xs text-muted-foreground">Gerencia os dispositivos com acesso à tua conta</p>
                       </div>
                     </div>
-                    <Button variant="outline" size="sm" className="rounded-full">Ver</Button>
+                    <Button variant="outline" size="sm" className="rounded-full" onClick={() => setIsSessionsModalOpen(true)}>Ver</Button>
                   </div>
                   <div className="flex items-center justify-between p-4 rounded-2xl bg-muted/50">
                     <div className="flex items-center gap-3">
@@ -809,7 +887,7 @@ const Perfil = () => {
                         <p className="text-xs text-muted-foreground">Notificações sobre atividades suspeitas</p>
                       </div>
                     </div>
-                    <Button variant="outline" size="sm" className="rounded-full">Configurar</Button>
+                    <Button variant="outline" size="sm" className="rounded-full" onClick={() => toast({ title: "Em breve", description: "Os alertas de segurança estarão disponíveis numa próxima atualização." })}>Configurar</Button>
                   </div>
                 </div>
               </div>
@@ -980,6 +1058,86 @@ const Perfil = () => {
                 </div>
               </div>
             )}
+          </motion.div>
+        </div>
+      )}
+
+      {/* Modal: Alterar palavra-passe */}
+      {isPasswordModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-card border border-border rounded-[2rem] max-w-md w-full p-6 shadow-2xl"
+          >
+            <h3 className="font-display font-bold text-xl mb-1 flex items-center gap-2">
+              <KeyRound className="h-5 w-5 text-primary" /> Alterar palavra-passe
+            </h3>
+            <p className="text-xs text-muted-foreground mb-4">Por segurança, confirma a palavra-passe atual antes de definir a nova.</p>
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="current-pass">Palavra-passe atual</Label>
+                <Input id="current-pass" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="••••••••" className="rounded-xl h-11" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="new-pass">Nova palavra-passe (mín. 6 caracteres)</Label>
+                <Input id="new-pass" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="••••••••" className="rounded-xl h-11" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="confirm-pass">Confirmar nova palavra-passe</Label>
+                <Input id="confirm-pass" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="••••••••" className="rounded-xl h-11" />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <Button variant="outline" onClick={() => { setIsPasswordModalOpen(false); setCurrentPassword(""); setNewPassword(""); setConfirmPassword(""); }} className="flex-1 rounded-xl h-11" disabled={changingPassword}>
+                  Cancelar
+                </Button>
+                <Button onClick={handleChangePassword} className="flex-1 rounded-xl h-11 gradient-hero text-primary-foreground font-bold" disabled={changingPassword}>
+                  {changingPassword ? "A guardar..." : "Guardar"}
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Modal: Sessões ativas */}
+      {isSessionsModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-card border border-border rounded-[2rem] max-w-md w-full p-6 shadow-2xl"
+          >
+            <h3 className="font-display font-bold text-xl mb-1 flex items-center gap-2">
+              <Eye className="h-5 w-5 text-primary" /> Sessões ativas
+            </h3>
+            <p className="text-xs text-muted-foreground mb-4">Dispositivos com acesso à tua conta neste momento.</p>
+            <div className="p-4 rounded-2xl bg-muted/50 border border-border/40 flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-emerald-500/10 flex items-center justify-center shrink-0">
+                <Smartphone className="h-5 w-5 text-emerald-500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm truncate">{getSessionInfo().device}</p>
+                <p className="text-xs text-muted-foreground">{user?.email}</p>
+                <p className="text-[11px] text-muted-foreground">{getSessionInfo().startedAt}</p>
+              </div>
+              <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-emerald-500/10 text-emerald-600 shrink-0">Atual</span>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed">
+              Por segurança, a sessão expira após 1 hora sem atividade. Se reconheceres algum acesso estranho, altera já a palavra-passe.
+            </p>
+            <div className="flex gap-3 pt-4">
+              <Button variant="outline" onClick={() => setIsSessionsModalOpen(false)} className="flex-1 rounded-xl h-11">
+                Fechar
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => { setIsSessionsModalOpen(false); logout(); navigate("/"); }}
+                className="flex-1 rounded-xl h-11 font-bold"
+              >
+                <LogOut className="h-4 w-4 mr-2" /> Terminar sessão
+              </Button>
+            </div>
           </motion.div>
         </div>
       )}

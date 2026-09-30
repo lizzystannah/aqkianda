@@ -1,3 +1,5 @@
+import { useState, useEffect } from "react";
+
 export type Listing = {
   id: string;
   title: string;
@@ -372,6 +374,49 @@ export const fetchListingsFromApi = async (): Promise<Listing[]> => {
   return listings;
 };
 
+// Hook: devolve um contador que incrementa sempre que a lista de anúncios
+// é atualizada (servidor, outra aba ou novo anúncio). Usar como dependência
+// de useMemo/useEffect para a página redesenhar sem refresh manual.
+export function useListingsVersion(): number {
+  const [version, setVersion] = useState(0);
+  useEffect(() => {
+    const bump = () => setVersion((v) => v + 1);
+    window.addEventListener("aqkianda-listings-updated", bump);
+    window.addEventListener("storage", bump);
+    return () => {
+      window.removeEventListener("aqkianda-listings-updated", bump);
+      window.removeEventListener("storage", bump);
+    };
+  }, []);
+  return version;
+}
+
+// Polling automático: volta a buscar o catálogo ao servidor de X em X segundos
+// e sempre que a aba volta a ficar visível / com foco. Assim um anúncio
+// publicado por outra pessoa aparece sem refresh manual.
+let autoRefreshStarted = false;
+export function startListingsAutoRefresh(intervalMs: number = 30000): void {
+  if (typeof window === "undefined" || autoRefreshStarted) return;
+  autoRefreshStarted = true;
+
+  let inFlight = false;
+  const refresh = async () => {
+    if (inFlight || document.hidden) return;
+    inFlight = true;
+    try {
+      await fetchListingsFromApi();
+    } finally {
+      inFlight = false;
+    }
+  };
+
+  window.setInterval(refresh, intervalMs);
+  window.addEventListener("focus", refresh);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) refresh();
+  });
+}
+
 if (typeof window !== "undefined") {
   try {
     // 1. Load any custom listings created by users
@@ -408,6 +453,8 @@ if (typeof window !== "undefined") {
 
     // 4. Initial server fetch
     fetchListingsFromApi();
+    // 5. Auto-refresh: polling + foco/visibilidade (sem refresh manual)
+    startListingsAutoRefresh(30000);
   } catch (err) {
     console.error("Error filtering or loading listings:", err);
   }

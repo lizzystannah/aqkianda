@@ -78,6 +78,7 @@ export interface DbUserRecord {
   securityQuestion?: string;
   securityAnswer?: string;
   status?: string;
+  tokenVersion?: number;
   registeredAt?: string;
 }
 
@@ -608,6 +609,7 @@ export async function initializeDatabase() {
         \`security_question\` VARCHAR(255) DEFAULT NULL,
         \`security_answer\` VARCHAR(255) DEFAULT NULL,
         \`status\` ENUM('active', 'suspended', 'banned') NOT NULL DEFAULT 'active',
+        \`token_version\` INT NOT NULL DEFAULT 1,
         \`created_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         \`updated_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX \`idx_users_email\` (\`email\`),
@@ -623,6 +625,11 @@ export async function initializeDatabase() {
     }
     try {
       await pool.query("ALTER TABLE `users` ADD COLUMN `security_answer` VARCHAR(255) DEFAULT NULL");
+    } catch {
+      // Column already exists
+    }
+    try {
+      await pool.query("ALTER TABLE `users` ADD COLUMN `token_version` INT NOT NULL DEFAULT 1");
     } catch {
       // Column already exists
     }
@@ -1206,7 +1213,7 @@ export async function getDbMessages(userEmailOrConvId: string): Promise<DbMessag
           content, image_url as image, is_from_buyer as isFromBuyer,
           DATE_FORMAT(created_at, '%Y-%m-%d %H:%i') as createdAt
         FROM messages
-        WHERE conversation_id = ? OR LOWER(sender_email) = ? OR LOWER(receiver_email) = ?
+        WHERE LOWER(conversation_id) = ? OR LOWER(sender_email) = ? OR LOWER(receiver_email) = ?
         ORDER BY created_at ASC
       `, [cleanKey, cleanKey, cleanKey])) as [mysql.RowDataPacket[], unknown];
 
@@ -1224,7 +1231,7 @@ export async function getDbMessages(userEmailOrConvId: string): Promise<DbMessag
 export async function createDbMessage(msg: Partial<DbMessageRecord>): Promise<DbMessageRecord> {
   const newMsg: DbMessageRecord = {
     id: msg.id || `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-    conversationId: msg.conversationId || "general",
+    conversationId: (msg.conversationId || "general").trim().toLowerCase(),
     senderId: msg.senderId || "",
     senderName: msg.senderName || "Utilizador",
     senderEmail: (msg.senderEmail || "").trim().toLowerCase(),
@@ -1489,7 +1496,7 @@ export async function findDbUserByEmail(email: string): Promise<DbUserRecord | n
   if (isDbConnected && pool) {
     try {
       const [rows] = (await pool.query(
-        "SELECT id, name, email, password_hash as password, phone, role, avatar, location, security_question as securityQuestion, security_answer as securityAnswer, status, DATE_FORMAT(created_at, '%d/%m/%Y') as registeredAt FROM users WHERE LOWER(email) = ?",
+        "SELECT id, name, email, password_hash as password, phone, role, avatar, location, security_question as securityQuestion, security_answer as securityAnswer, status, token_version as tokenVersion, DATE_FORMAT(created_at, '%d/%m/%Y') as registeredAt FROM users WHERE LOWER(email) = ?",
         [cleanEmail]
       )) as [mysql.RowDataPacket[], unknown];
       if (rows && rows.length > 0) {
@@ -1548,8 +1555,8 @@ export async function findDbUserByIdentifier(identifier: string): Promise<DbUser
     try {
       if (coreDigits && coreDigits.length >= 9) {
         const [rows] = (await pool.query(`
-          SELECT id, name, email, password_hash as password, phone, role, avatar, location, security_question as securityQuestion, security_answer as securityAnswer, status, DATE_FORMAT(created_at, '%d/%m/%Y') as registeredAt 
-          FROM users 
+          SELECT id, name, email, password_hash as password, phone, role, avatar, location, security_question as securityQuestion, security_answer as securityAnswer, status, token_version as tokenVersion, DATE_FORMAT(created_at, '%d/%m/%Y') as registeredAt
+          FROM users
           WHERE LOWER(email) = ? OR (phone IS NOT NULL AND RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+', ''), '244', ''), 9) = ?)
           LIMIT 1
         `, [clean, coreDigits.slice(-9)])) as [mysql.RowDataPacket[], unknown];
@@ -1559,8 +1566,8 @@ export async function findDbUserByIdentifier(identifier: string): Promise<DbUser
         }
       } else {
         const [rows] = (await pool.query(`
-          SELECT id, name, email, password_hash as password, phone, role, avatar, location, security_question as securityQuestion, security_answer as securityAnswer, status, DATE_FORMAT(created_at, '%d/%m/%Y') as registeredAt 
-          FROM users 
+          SELECT id, name, email, password_hash as password, phone, role, avatar, location, security_question as securityQuestion, security_answer as securityAnswer, status, token_version as tokenVersion, DATE_FORMAT(created_at, '%d/%m/%Y') as registeredAt
+          FROM users
           WHERE LOWER(email) = ?
           LIMIT 1
         `, [clean])) as [mysql.RowDataPacket[], unknown];
@@ -1650,6 +1657,7 @@ export async function createDbUser(user: DbUserRecord): Promise<DbUserRecord> {
     role: userRole,
     password: hashedPassword || undefined,
     securityAnswer: hashedSecurityAnswer || undefined,
+    tokenVersion: 1,
     registeredAt
   };
 
@@ -1713,6 +1721,59 @@ export async function updateDbUserProfile(email: string, updates: { name?: strin
   return false;
 }
 
+export async function changeDbUserPassword(email: string, currentPassword: string, newPassword: string): Promise<{ ok: boolean; error?: string; tokenVersion?: number }> {
+  const cleanEmail = email.trim().toLowerCase();
+  if (!currentPassword || !newPassword || newPassword.length < 6) {
+    return { ok: false, error: "A nova palavra-passe deve conter pelo menos 6 caracteres." };
+  }
+  if (newPassword === currentPassword) {
+    return { ok: false, error: "A nova palavra-passe deve ser diferente da atual." };
+  }
+  const user = await findDbUserByEmail(cleanEmail);
+  if (!user) {
+    return { ok: false, error: "Conta não encontrada." };
+  }
+
+  // Permite root/admin autenticado via password de ambiente (igual ao login)
+  let isValid = false;
+  const envAdminPass = getAdminPassword();
+  if (isAdminEmail(cleanEmail) && envAdminPass) {
+    isValid = await verifyPassword(currentPassword, envAdminPass);
+  }
+  if (!isValid) {
+    isValid = await verifyPassword(currentPassword, user.password);
+  }
+  if (!isValid) {
+    return { ok: false, error: "A palavra-passe atual está incorreta." };
+  }
+
+  const hashedPassword = await hashPassword(newPassword);
+
+  // Incremento atómico da versão: invalida todos os JWTs antigos desta conta
+  let newVersion = (user.tokenVersion ?? 1) + 1;
+  if (isDbConnected && pool) {
+    try {
+      await pool.query("UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE LOWER(email) = ?", [hashedPassword, cleanEmail]);
+      const [rows] = (await pool.query("SELECT token_version AS v FROM users WHERE LOWER(email) = ?", [cleanEmail])) as [mysql.RowDataPacket[], unknown];
+      if (rows && rows[0] && rows[0].v != null) {
+        newVersion = Number(rows[0].v);
+      }
+    } catch (e) {
+      console.error("Error changing password in MySQL:", e);
+      return { ok: false, error: "Não foi possível atualizar a palavra-passe. Tente novamente." };
+    }
+  }
+
+  user.password = hashedPassword;
+  user.tokenVersion = newVersion;
+  const memUser = inMemoryUsers.find(u => u.email.toLowerCase() === cleanEmail);
+  if (memUser && memUser !== user) {
+    memUser.password = hashedPassword;
+    memUser.tokenVersion = newVersion;
+  }
+  return { ok: true, tokenVersion: newVersion };
+}
+
 export async function getSecurityQuestionForUser(identifier: string): Promise<{ question: string; email: string } | null> {
   const user = await findDbUserByIdentifier(identifier);
   if (!user) return null;
@@ -1736,15 +1797,23 @@ export async function resetPasswordWithSecurityAnswer(identifier: string, answer
 
   const hashedPassword = await hashPassword(newPassword);
 
+  // Recuperação de conta também invalida todas as sessões existentes
+  const newVersion = (user.tokenVersion ?? 1) + 1;
   if (isDbConnected && pool) {
     try {
-      await pool.query("UPDATE users SET password_hash = ? WHERE LOWER(email) = ?", [hashedPassword, user.email.toLowerCase()]);
+      await pool.query("UPDATE users SET password_hash = ?, token_version = ? WHERE LOWER(email) = ?", [hashedPassword, newVersion, user.email.toLowerCase()]);
     } catch (e) {
       console.error("Error resetting password in MySQL:", e);
     }
   }
 
   user.password = hashedPassword;
+  user.tokenVersion = newVersion;
+  const memUser = inMemoryUsers.find(u => u.email.toLowerCase() === user.email.toLowerCase());
+  if (memUser && memUser !== user) {
+    memUser.password = hashedPassword;
+    memUser.tokenVersion = newVersion;
+  }
   return true;
 }
 

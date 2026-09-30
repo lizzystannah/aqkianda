@@ -18,7 +18,7 @@ import {
     Smartphone, Car, Home as HomeIcon, Shirt, Sofa, Dumbbell, Briefcase, Wrench
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { listings, categories, formatPrice } from "@/data/listings";
+import { listings, categories, formatPrice, useListingsVersion } from "@/data/listings";
 import { useTheme } from "@/context/ThemeContext";
 import { useFavorites } from "@/context/FavoritesContext";
 import { useAuth } from "@/context/AuthContext";
@@ -71,6 +71,8 @@ const TemplateAlibabaV4 = () => {
     const { toggleFavorite, isFavorite } = useFavorites();
     const { user, isAdmin, logout } = useAuth();
     const [searchQuery, setSearchQuery] = useState("");
+    // Redesenha quando chegam anúncios novos do servidor (sem refresh manual)
+    useListingsVersion();
     const [scrolled, setScrolled] = useState(false);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [currentSlide, setCurrentSlide] = useState(0);

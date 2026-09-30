@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ListingCard from "@/components/ListingCard";
-import { listings, categories, getCategories, matchesListingSearch } from "@/data/listings";
+import { listings, categories, getCategories, matchesListingSearch, useListingsVersion } from "@/data/listings";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, SlidersHorizontal, MapPin, X, ArrowUpDown, Clock, TrendingUp, Tag } from "lucide-react";
@@ -19,6 +19,8 @@ const Explorar = () => {
   const [location, setLocation] = useState("Angola");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [sortBy, setSortBy] = useState<"recente" | "preco-baixo" | "preco-alto" | "destaque">("recente");
+  // Recalcula quando chegam anúncios novos do servidor (sem refresh manual)
+  const listingsVersion = useListingsVersion();
 
   // Keep state synced if URL params change externally
   useEffect(() => {
@@ -74,7 +76,8 @@ const Explorar = () => {
     }
 
     return result;
-  }, [cat, cond, q, priceRange, location, sortBy]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cat, cond, q, priceRange, location, sortBy, listingsVersion]);
 
   const setCat = (c: string) => {
     const newParams = new URLSearchParams(params);
