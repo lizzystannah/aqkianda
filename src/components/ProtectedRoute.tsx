@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { Link, useLocation } from "react-router-dom";
 import Header from "@/components/Header";
@@ -14,11 +14,13 @@ interface ProtectedRouteProps {
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requireAdmin = false }) => {
   const { isAuthenticated, isAdmin, openAuthModal } = useAuth();
   const location = useLocation();
+  const promptedRef = useRef(false);
 
+  // Pede login apenas uma vez: fechar o modal não pode reabri-lo em loop
   useEffect(() => {
-    if (!isAuthenticated) {
-      openAuthModal(location.pathname);
-    }
+    if (isAuthenticated || promptedRef.current) return;
+    promptedRef.current = true;
+    openAuthModal(location.pathname);
   }, [isAuthenticated, location.pathname, openAuthModal]);
 
   if (!isAuthenticated) {
