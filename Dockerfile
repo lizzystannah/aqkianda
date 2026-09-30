@@ -1,5 +1,5 @@
-# Build Stage
-FROM node:20-alpine
+# Build Stage (Node 22 LTS: exigido pelas versões atuais do AWS SDK v3)
+FROM node:22-alpine
 
 WORKDIR /app
 
