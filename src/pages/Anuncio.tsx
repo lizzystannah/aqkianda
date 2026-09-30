@@ -258,7 +258,7 @@ const Anuncio = () => {
   const { toast } = useToast();
   const { isFavorite, toggleFavorite } = useFavorites();
   const { getUpdatedListing, rateListing, getListingRating } = useRatings();
-  const { isAuthenticated, openAuthModal } = useAuth();
+  const { isAuthenticated, openAuthModal, user } = useAuth();
   
   const rawListing = useMemo(() => listings.find(l => l.id === id), [id]);
   const listing = useMemo(() => rawListing ? getUpdatedListing(rawListing) : undefined, [rawListing, getUpdatedListing]);
