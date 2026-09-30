@@ -2191,8 +2191,40 @@ export async function saveDbFavorites(userEmail: string, listingIds: string[]): 
 }
 
 // ==========================================================
-// AVALIAÇÕES (sincronizadas por conta)
+// AVALIAÇÕES (sincronizadas por conta + agregação pública real)
 // ==========================================================
+export interface DbRatingSummary {
+  avg: number;
+  count: number;
+}
+
+export async function getDbRatingsSummary(listingIds?: string[]): Promise<Record<string, DbRatingSummary>> {
+  if (!isDbConnected || !pool) return {};
+
+  try {
+    const ids = (listingIds || []).map((id) => String(id).trim()).filter(Boolean).slice(0, 500);
+    let query = "SELECT listing_id as listingId, AVG(rating) as avgRating, COUNT(*) as totalCount FROM ratings";
+    const params: string[] = [];
+    if (ids.length > 0) {
+      query += ` WHERE listing_id IN (${ids.map(() => "?").join(",")})`;
+      params.push(...ids);
+    }
+    query += " GROUP BY listing_id LIMIT 5000";
+
+    const [rows] = (await pool.query(query, params)) as [mysql.RowDataPacket[], unknown];
+    const result: Record<string, DbRatingSummary> = {};
+    for (const row of rows || []) {
+      result[String(row.listingId)] = {
+        avg: Math.round(Number(row.avgRating) * 10) / 10,
+        count: Number(row.totalCount) || 0
+      };
+    }
+    return result;
+  } catch (e) {
+    console.error("Error loading ratings summary from MySQL:", e);
+    return {};
+  }
+}
 export async function getDbRatings(userEmail: string): Promise<Record<string, number>> {
   if (!isDbConnected || !pool) return {};
 

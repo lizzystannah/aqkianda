@@ -235,9 +235,15 @@ const SellerCard = ({ listing, setIsReportOpen }: { listing: Listing, setIsRepor
             {sellerUsername}
           </Link>
           <div className="flex items-center gap-1 text-[11px] text-muted-foreground mt-0.5">
-            <Star className="h-3.5 w-3.5 fill-gold text-gold" /> 
-            <span className="font-bold text-foreground/80">{sellerStats.rating}</span> 
-            <span>({sellerStats.totalCount} avaliações)</span>
+            <Star className="h-3.5 w-3.5 fill-gold text-gold" />
+            {sellerStats.rating === null ? (
+              <span className="font-bold text-foreground/80">Vendedor novo · sem avaliações</span>
+            ) : (
+              <>
+                <span className="font-bold text-foreground/80">{sellerStats.rating}</span>
+                <span>({sellerStats.totalCount} {sellerStats.totalCount === 1 ? "avaliação" : "avaliações"})</span>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -600,8 +606,14 @@ const Anuncio = () => {
               <div className="flex flex-col md:flex-row gap-6 justify-between md:items-center">
                 <div className="space-y-1.5">
                   <div className="flex items-baseline gap-2">
-                    <span className="text-4xl md:text-5xl font-extrabold text-foreground">{listingRatingStats.rating}</span>
-                    <span className="text-xs text-muted-foreground">de 5.0 estrelas</span>
+                    <span className="text-4xl md:text-5xl font-extrabold text-foreground">
+                      {listingRatingStats.totalCount > 0 ? listingRatingStats.rating : "–"}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {listingRatingStats.totalCount > 0
+                        ? `de 5.0 estrelas · ${listingRatingStats.totalCount} ${listingRatingStats.totalCount === 1 ? "voto" : "votos"}`
+                        : "sem avaliações ainda — sê o primeiro a votar abaixo"}
+                    </span>
                   </div>
                   <div className="flex items-center gap-0.5">
                     {[1, 2, 3, 4, 5].map((starValue) => {

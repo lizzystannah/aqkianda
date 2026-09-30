@@ -90,7 +90,7 @@ const ListingCard = ({ listing, index = 0 }: { listing: Listing; index?: number 
           </div>
           <div className="flex items-center gap-0.5 shrink-0 text-[10px] text-muted-foreground font-semibold">
             <Star className="h-2.5 w-2.5 fill-gold text-gold" />
-            <span>{sellerStats.rating}</span>
+            <span>{sellerStats.rating ?? "Novo"}</span>
           </div>
         </div>
 

@@ -11,6 +11,7 @@ import { Link, useSearchParams, useParams, useNavigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth, getAuthHeaders, AUTH_TOKEN_KEY } from "@/context/AuthContext";
+import { useRatings } from "@/context/RatingsContext";
 import { useDocumentMetadata } from "@/hooks/useDocumentMetadata";
 import { getSellerPath, getSellerUrl, copyUrlToClipboard, getProfileUrl } from "@/config/urls";
 
@@ -46,6 +47,7 @@ const Perfil = () => {
   const { name: routeName } = useParams();
   const navigate = useNavigate();
   const { user, isAuthenticated, openAuthModal, logout, updateProfile } = useAuth();
+  const { getSellerRating } = useRatings();
 
   const [localListings, setLocalListings] = useState<Listing[]>([]);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
@@ -435,6 +437,7 @@ const Perfil = () => {
 
   const userName = user?.name || "Utilizador";
   const userInitials = user?.avatar || userName.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase() || "AO";
+  const mySellerStats = getSellerRating(userName);
 
   // Accurate exclusive user listing filtering
   const isMyListing = (l: Listing) => {
@@ -553,7 +556,7 @@ const Perfil = () => {
               </div>
 
               <div className="flex flex-wrap justify-center md:justify-start items-center gap-x-6 gap-y-2 text-sm text-secondary-foreground/70">
-                <span className="flex items-center gap-1.5"><Star className="h-4 w-4 fill-gold text-gold" /> 5.0 (Conta Ativa)</span>
+                <span className="flex items-center gap-1.5"><Star className="h-4 w-4 fill-gold text-gold" /> {mySellerStats.rating === null ? "Novo vendedor" : `${mySellerStats.rating} (${mySellerStats.totalCount} ${mySellerStats.totalCount === 1 ? "avaliação" : "avaliações"})`}</span>
                 <span className="flex items-center gap-1.5"><MapPin className="h-4 w-4" /> {user?.province || "Luanda, Angola"}</span>
                 <span className="flex items-center gap-1.5"><Mail className="h-4 w-4" /> {user?.email || "utilizador@email.ao"}</span>
               </div>

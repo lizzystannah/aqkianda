@@ -47,7 +47,8 @@ import {
   getDbFavorites,
   saveDbFavorites,
   getDbRatings,
-  saveDbRatings
+  saveDbRatings,
+  getDbRatingsSummary
 } from "./server/db.js";
 import { uploadImageToStorage, isR2Configured, testR2Upload, getR2ObjectStream, deleteR2Object } from "./server/r2.js";
 
@@ -995,6 +996,20 @@ async function startServer() {
     } catch (error) {
       console.error("Erro ao guardar avaliações:", error);
       res.status(500).json({ error: "Erro ao guardar avaliações." });
+    }
+  });
+
+  // Agregado público de avaliações (médias reais de todos os utilizadores).
+  // Sem autenticação: é a mesma informação exibida nos cartões e páginas.
+  app.get("/api/ratings/summary", async (req, res) => {
+    try {
+      const raw = (req.query.ids || "").toString();
+      const ids = raw.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 500);
+      const summary = await getDbRatingsSummary(ids.length > 0 ? ids : undefined);
+      res.json({ summary });
+    } catch (error) {
+      console.error("Erro ao carregar resumo de avaliações:", error);
+      res.status(500).json({ error: "Erro ao carregar avaliações." });
     }
   });
 

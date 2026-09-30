@@ -5,15 +5,20 @@ import { useAuth, getAuthHeaders } from "@/context/AuthContext";
 interface RatingsContextType {
   userRatings: Record<string, number>; // listingId -> user star rating (1-5)
   rateListing: (listingId: string, rating: number) => void;
+  refreshSummaries: () => void;
   getListingRating: (listingId: string) => { rating: number; totalCount: number; userRating?: number };
-  getSellerRating: (sellerName: string) => { rating: number; totalCount: number };
+  getSellerRating: (sellerName: string) => { rating: number | null; totalCount: number };
   getUpdatedListings: () => Listing[];
   getUpdatedListing: (listing: Listing) => Listing;
 }
 
 const RatingsContext = createContext<RatingsContextType | undefined>(undefined);
 
-const BASELINE_COUNT = 8; // Assumed number of original reviews to give realistic weight
+interface RatingSummary {
+  avg: number;
+  count: number;
+}
+
 const RATINGS_STORAGE_KEY = "aqkianda-user-ratings";
 
 const readLocalRatings = (): Record<string, number> => {
@@ -54,8 +59,30 @@ export const RatingsProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const { user } = useAuth();
 
   const [userRatings, setUserRatings] = useState<Record<string, number>>(readLocalRatings);
+  // Agregado real de TODOS os utilizadores (média + nº de votos por anúncio)
+  const [summaries, setSummaries] = useState<Record<string, RatingSummary>>({});
   const syncedRef = useRef(false);
   const lastPushedRef = useRef<string>("");
+
+  const refreshSummaries = useCallback(async () => {
+    try {
+      const res = await fetch("/api/ratings/summary");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data?.summary && typeof data.summary === "object") {
+        setSummaries(data.summary);
+      }
+    } catch {
+      // Offline: mantém o último agregado conhecido
+    }
+  }, []);
+
+  // Carrega o agregado real no arranque e quando o catálogo muda
+  useEffect(() => {
+    void refreshSummaries();
+    window.addEventListener("aqkianda-listings-updated", refreshSummaries);
+    return () => window.removeEventListener("aqkianda-listings-updated", refreshSummaries);
+  }, [refreshSummaries]);
 
   useEffect(() => {
     try {
@@ -101,6 +128,7 @@ export const RatingsProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [user?.email]);
 
   // Envia alterações locais para a conta (após a primeira sincronização)
+  // e recarrega o agregado para o voto contar para toda a gente
   useEffect(() => {
     if (!user?.email || !syncedRef.current) return;
 
@@ -108,8 +136,8 @@ export const RatingsProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (snapshot === lastPushedRef.current) return;
 
     lastPushedRef.current = snapshot;
-    void pushServerRatings(userRatings);
-  }, [userRatings, user?.email]);
+    void pushServerRatings(userRatings).then(() => refreshSummaries());
+  }, [userRatings, user?.email, refreshSummaries]);
 
   const rateListing = useCallback((listingId: string, rating: number) => {
     setUserRatings((prev) => ({
@@ -119,26 +147,33 @@ export const RatingsProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   const getListingRating = useCallback((listingId: string) => {
-    const original = originalListings.find((l) => l.id === listingId);
-    if (!original) return { rating: 0, totalCount: 0 };
-
+    const summary = summaries[listingId];
     const userRating = userRatings[listingId];
-    if (userRating !== undefined) {
-      const calculated = parseFloat(
-        (((original.rating * BASELINE_COUNT) + userRating) / (BASELINE_COUNT + 1)).toFixed(1)
-      );
+
+    // 1. Agregado real de todos os utilizadores (inclui o meu voto após sincronizar)
+    if (summary && summary.count > 0) {
       return {
-        rating: calculated,
-        totalCount: BASELINE_COUNT + 1,
+        rating: summary.avg,
+        totalCount: summary.count,
         userRating,
       };
     }
 
+    // 2. Só o meu voto local (ainda não sincronizado): conta como 1 voto real
+    if (userRating !== undefined) {
+      return {
+        rating: userRating,
+        totalCount: 1,
+        userRating,
+      };
+    }
+
+    // 3. Zero votos reais: sem estrelas, sem contagem inventada
     return {
-      rating: original.rating,
-      totalCount: BASELINE_COUNT,
+      rating: 0,
+      totalCount: 0,
     };
-  }, [userRatings]);
+  }, [userRatings, summaries]);
 
   const getUpdatedListing = useCallback((listing: Listing): Listing => {
     const { rating } = getListingRating(listing.id);
@@ -157,31 +192,33 @@ export const RatingsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       (l) => l.seller.toLowerCase() === sellerName.toLowerCase()
     );
 
-    if (sellerListings.length === 0) return { rating: 5.0, totalCount: 0 };
+    // Média ponderada pelos votos reais nos anúncios do vendedor.
+    // Sem nenhum voto real: null (vendedor novo, sem estrelas à nascença).
+    let weightedSum = 0;
+    let totalVotes = 0;
+    for (const l of sellerListings) {
+      const s = getListingRating(l.id);
+      weightedSum += s.rating * s.totalCount;
+      totalVotes += s.totalCount;
+    }
 
-    const updatedSellerListings = sellerListings.map(l => getUpdatedListing(l));
-    const sum = updatedSellerListings.reduce((acc, l) => acc + l.rating, 0);
-    const avg = parseFloat((sum / updatedSellerListings.length).toFixed(1));
-
-    const totalCount = updatedSellerListings.reduce((acc, l) => {
-      const { totalCount: tc } = getListingRating(l.id);
-      return acc + tc;
-    }, 0);
+    if (totalVotes === 0) return { rating: null as number | null, totalCount: 0 };
 
     return {
-      rating: avg,
-      totalCount,
+      rating: Math.round((weightedSum / totalVotes) * 10) / 10,
+      totalCount: totalVotes,
     };
-  }, [getUpdatedListing, getListingRating]);
+  }, [getListingRating]);
 
   const contextValue = useMemo(() => ({
     userRatings,
     rateListing,
+    refreshSummaries,
     getListingRating,
     getSellerRating,
     getUpdatedListings,
     getUpdatedListing,
-  }), [userRatings, rateListing, getListingRating, getSellerRating, getUpdatedListings, getUpdatedListing]);
+  }), [userRatings, rateListing, refreshSummaries, getListingRating, getSellerRating, getUpdatedListings, getUpdatedListing]);
 
   return (
     <RatingsContext.Provider value={contextValue}>

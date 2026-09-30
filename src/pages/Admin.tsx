@@ -1520,12 +1520,12 @@ const Admin = () => {
                                 <div className="flex flex-col items-center justify-center">
                                   <div className="flex items-center gap-1">
                                     <span className="text-amber-500 text-xs font-bold font-mono">
-                                      {ratingStats.rating.toFixed(1)}
+                                      {ratingStats.totalCount > 0 ? ratingStats.rating.toFixed(1) : "–"}
                                     </span>
                                     <span className="text-amber-400 text-xs">★</span>
                                   </div>
                                   <span className="text-[9px] text-muted-foreground font-semibold">
-                                    ({ratingStats.totalCount} votos)
+                                    ({ratingStats.totalCount} {ratingStats.totalCount === 1 ? "voto" : "votos"})
                                   </span>
                                 </div>
                               </td>

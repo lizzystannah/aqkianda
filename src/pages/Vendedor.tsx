@@ -121,18 +121,24 @@ const Vendedor = () => {
 
                 <p className="text-xs text-muted-foreground">@{sellerUsername}</p>
 
-                {/* Stars ratings breakdown */}
+                {/* Stars ratings breakdown (apenas votos reais) */}
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground pt-0.5">
-                  <div className="flex items-center gap-0.5 text-gold">
-                    {[1, 2, 3, 4, 5].map((starVal) => (
-                      <Star 
-                        key={starVal} 
-                        className={`h-3.5 w-3.5 ${starVal <= Math.floor(avgRating) ? "fill-current" : "opacity-30"}`} 
-                      />
-                    ))}
-                  </div>
-                  <span className="font-bold text-foreground/90">{avgRating}</span>
-                  <span>({sellerStats.totalCount} avaliações)</span>
+                  {avgRating === null ? (
+                    <span className="font-bold text-foreground/90">Vendedor novo · sem avaliações ainda</span>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-0.5 text-gold">
+                        {[1, 2, 3, 4, 5].map((starVal) => (
+                          <Star
+                            key={starVal}
+                            className={`h-3.5 w-3.5 ${starVal <= Math.floor(avgRating) ? "fill-current" : "opacity-30"}`}
+                          />
+                        ))}
+                      </div>
+                      <span className="font-bold text-foreground/90">{avgRating}</span>
+                      <span>({sellerStats.totalCount} {sellerStats.totalCount === 1 ? "avaliação" : "avaliações"})</span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
