@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Input } from "@/components/ui/input";
@@ -39,6 +39,23 @@ const DEFAULT_EVENTS: PromoCampaign[] = [
     createdAt: "2026-07-01T12:00:00Z"
   }
 ];
+
+// Rascunho do anúncio: sobrevive a login/refresh para o utilizador não perder o formulário
+const DRAFT_KEY = "aqkianda-listing-draft";
+const DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const DRAFT_MAX_CHARS = 1_500_000;
+
+interface ListingDraft {
+  title: string;
+  price: string;
+  loc: string;
+  desc: string;
+  tags: string[];
+  cat: string;
+  cond: "novo" | "usado";
+  images: string[];
+  savedAt: number;
+}
 
 const Publicar = () => {
   const { toast } = useToast();
@@ -94,6 +111,78 @@ const Publicar = () => {
       setSelectedPromoId(promos[0].id);
     }
   }, []);
+
+  // Recupera rascunho guardado (ex: o utilizador começou sem sessão e foi fazer login)
+  useEffect(() => {
+    if (isEditing) return;
+
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (raw) {
+        const draft = JSON.parse(raw) as ListingDraft;
+        const isFresh =
+          draft && typeof draft.savedAt === "number" && Date.now() - draft.savedAt < DRAFT_MAX_AGE_MS;
+
+        if (isFresh) {
+          setTitle(draft.title || "");
+          setPrice(draft.price || "");
+          setLoc(draft.loc || "");
+          setDesc(draft.desc || "");
+          setTags(Array.isArray(draft.tags) ? draft.tags : []);
+          setCat(draft.cat || "");
+          setCond(draft.cond === "novo" ? "novo" : "usado");
+          if (Array.isArray(draft.images) && draft.images.length > 0) {
+            setImages(draft.images);
+          }
+          toast({
+            title: "Rascunho recuperado 📝",
+            description: "Continuaste exatamente de onde paraste.",
+          });
+        } else {
+          localStorage.removeItem(DRAFT_KEY);
+        }
+      }
+    } catch (e) {
+      localStorage.removeItem(DRAFT_KEY);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditing]);
+
+  // Guarda o rascunho enquanto o utilizador escreve (não apaga formulários vazios)
+  useEffect(() => {
+    if (isEditing) return;
+
+    const hasContent =
+      title.trim() || price.trim() || loc.trim() || desc.trim() || cat || images.length > 0;
+    if (!hasContent) return;
+
+    const timer = setTimeout(() => {
+      const build = (withImages: boolean): ListingDraft => ({
+        title,
+        price,
+        loc,
+        desc,
+        tags,
+        cat,
+        cond,
+        images: withImages ? images : [],
+        savedAt: Date.now(),
+      });
+
+      try {
+        let payload = JSON.stringify(build(true));
+        // Base64 das fotos pode estourar a quota do localStorage: guarda só o texto
+        if (payload.length > DRAFT_MAX_CHARS) {
+          payload = JSON.stringify(build(false));
+        }
+        localStorage.setItem(DRAFT_KEY, payload);
+      } catch (e) {
+        console.debug("Sem espaço para o rascunho do anúncio:", e);
+      }
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [title, price, loc, desc, tags, cat, cond, images, isEditing]);
 
   // Pre-fill if editing
   useEffect(() => {
@@ -304,6 +393,7 @@ const Publicar = () => {
     }
 
     // Se for apenas criação de novo anúncio, descarta o rascunho local
+    localStorage.removeItem(DRAFT_KEY);
     setTitle("");
     setPrice("");
     setLoc("");
@@ -390,6 +480,9 @@ const Publicar = () => {
       ? Math.round(priceVal * (1 - selectedDiscount / 100))
       : undefined;
 
+    let localSaved = false;
+    let syncedToServer = false;
+
     try {
       const sellerName = currentUser?.name || "Anunciante Aqkianda";
       const sellerPhone = currentUser?.phone || "";
@@ -462,27 +555,23 @@ const Publicar = () => {
         listings.unshift(newListing);
       }
       window.dispatchEvent(new Event("aqkianda-listings-updated"));
+      localSaved = true;
 
       // Sync with backend MySQL API
       try {
-        if (isEditing && id) {
-          await fetch(`/api/listings/${id}`, {
-            method: "PUT",
-            headers: { 
-              "Content-Type": "application/json",
-              ...getAuthHeaders()
-            },
-            body: JSON.stringify(newListing)
-          });
-        } else {
-          await fetch("/api/listings", {
-            method: "POST",
-            headers: { 
-              "Content-Type": "application/json",
-              ...getAuthHeaders()
-            },
-            body: JSON.stringify(newListing)
-          });
+        const endpoint = isEditing && id ? `/api/listings/${id}` : "/api/listings";
+        const method = isEditing && id ? "PUT" : "POST";
+        const res = await fetch(endpoint, {
+          method,
+          headers: { 
+            "Content-Type": "application/json",
+            ...getAuthHeaders()
+          },
+          body: JSON.stringify(newListing)
+        });
+        syncedToServer = res.ok;
+        if (!res.ok) {
+          console.debug("Backend listing sync HTTP:", res.status);
         }
       } catch (apiErr) {
         console.debug("Backend listing sync:", apiErr);
@@ -494,10 +583,29 @@ const Publicar = () => {
     setIsSubmitting(false);
     setStep(4);
 
-    toast({
-      title: isEditing ? "Anúncio atualizado! 📝" : "Anúncio publicado! 🎉",
-      description: isEditing ? "As tuas alterações foram guardadas com sucesso." : "O teu anúncio ficará online em breve.",
-    });
+    if (localSaved || syncedToServer) {
+      // Rascunho já cumpriu o propósito: limpar
+      localStorage.removeItem(DRAFT_KEY);
+    }
+
+    if (syncedToServer) {
+      toast({
+        title: isEditing ? "Anúncio atualizado! 📝" : "Anúncio publicado! 🎉",
+        description: isEditing ? "As tuas alterações foram guardadas com sucesso." : "O teu anúncio ficará online em breve.",
+      });
+    } else if (localSaved) {
+      toast({
+        variant: "destructive",
+        title: isEditing ? "Alterações só neste dispositivo" : "Anúncio guardado só neste dispositivo",
+        description: "Não foi possível sincronizar com a plataforma (sem ligação ou sessão expirada). O anúncio fica neste navegador — volta a publicar quando a ligação voltar.",
+      });
+    } else {
+      toast({
+        variant: "destructive",
+        title: "Não foi possível guardar",
+        description: "O anúncio não foi guardado. Verifica os dados e tenta novamente.",
+      });
+    }
 
     setTimeout(() => nav("/perfil?tab=anuncios"), 2000);
   };

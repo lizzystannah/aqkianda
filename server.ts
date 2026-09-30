@@ -42,7 +42,11 @@ import {
   getAdminPassword,
   isAdminEmail,
   verifyPassword,
-  upgradePasswordHashIfLegacy
+  upgradePasswordHashIfLegacy,
+  getDbFavorites,
+  saveDbFavorites,
+  getDbRatings,
+  saveDbRatings
 } from "./server/db.js";
 import { uploadImageToStorage, isR2Configured, testR2Upload, getR2ObjectStream, deleteR2Object } from "./server/r2.js";
 
@@ -892,6 +896,62 @@ async function startServer() {
     } catch (error) {
       console.error("Erro ao validar sessão:", error);
       res.status(500).json({ error: "Erro ao validar a sessão." });
+    }
+  });
+
+  // Favoritos sincronizados por conta (em vez de apenas no navegador)
+  app.get("/api/favorites", requireAuth, async (req, res) => {
+    try {
+      const email = req.user?.email;
+      if (!email) return res.status(401).json({ error: "Sessão inválida." });
+
+      const listingIds = await getDbFavorites(email);
+      res.json({ listingIds });
+    } catch (error) {
+      console.error("Erro ao carregar favoritos:", error);
+      res.status(500).json({ error: "Erro ao carregar favoritos." });
+    }
+  });
+
+  app.put("/api/favorites", requireAuth, async (req, res) => {
+    try {
+      const email = req.user?.email;
+      if (!email) return res.status(401).json({ error: "Sessão inválida." });
+
+      const listingIds = Array.isArray(req.body?.listingIds) ? req.body.listingIds : [];
+      await saveDbFavorites(email, listingIds);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Erro ao guardar favoritos:", error);
+      res.status(500).json({ error: "Erro ao guardar favoritos." });
+    }
+  });
+
+  // Avaliações sincronizadas por conta (em vez de apenas no navegador)
+  app.get("/api/ratings", requireAuth, async (req, res) => {
+    try {
+      const email = req.user?.email;
+      if (!email) return res.status(401).json({ error: "Sessão inválida." });
+
+      const ratings = await getDbRatings(email);
+      res.json({ ratings });
+    } catch (error) {
+      console.error("Erro ao carregar avaliações:", error);
+      res.status(500).json({ error: "Erro ao carregar avaliações." });
+    }
+  });
+
+  app.put("/api/ratings", requireAuth, async (req, res) => {
+    try {
+      const email = req.user?.email;
+      if (!email) return res.status(401).json({ error: "Sessão inválida." });
+
+      const ratings = req.body?.ratings && typeof req.body.ratings === "object" ? req.body.ratings : {};
+      await saveDbRatings(email, ratings);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Erro ao guardar avaliações:", error);
+      res.status(500).json({ error: "Erro ao guardar avaliações." });
     }
   });
 

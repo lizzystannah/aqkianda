@@ -759,6 +759,30 @@ export async function initializeDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
+    // Tabela de Favoritos (sincronizados por conta)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS \`favorites\` (
+        \`user_email\` VARCHAR(191) NOT NULL,
+        \`listing_id\` VARCHAR(64) NOT NULL,
+        \`created_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`user_email\`, \`listing_id\`),
+        INDEX \`idx_favorites_user\` (\`user_email\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // Tabela de Avaliações (sincronizadas por conta)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS \`ratings\` (
+        \`user_email\` VARCHAR(191) NOT NULL,
+        \`listing_id\` VARCHAR(64) NOT NULL,
+        \`rating\` TINYINT NOT NULL DEFAULT 5,
+        \`created_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`updated_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`user_email\`, \`listing_id\`),
+        INDEX \`idx_ratings_listing\` (\`listing_id\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
     // Seed blog posts if empty
     const [blogRows] = (await pool.query("SELECT COUNT(*) as count FROM `blog_posts`")) as [mysql.RowDataPacket[], unknown];
     if (blogRows && blogRows[0] && blogRows[0].count === 0) {
@@ -2048,5 +2072,106 @@ export async function deleteDbBlogPost(id: string): Promise<boolean> {
     return true;
   }
   return false;
+}
+
+// ==========================================================
+// FAVORITOS (sincronizados por conta)
+// ==========================================================
+export async function getDbFavorites(userEmail: string): Promise<string[]> {
+  if (!isDbConnected || !pool) return [];
+
+  try {
+    const [rows] = (await pool.query(
+      "SELECT listing_id as listingId FROM favorites WHERE user_email = ? ORDER BY created_at DESC",
+      [userEmail.trim().toLowerCase()]
+    )) as [mysql.RowDataPacket[], unknown];
+
+    return rows.map(r => String(r.listingId));
+  } catch (e) {
+    console.error("Error loading favorites from MySQL:", e);
+    return [];
+  }
+}
+
+export async function saveDbFavorites(userEmail: string, listingIds: string[]): Promise<void> {
+  if (!isDbConnected || !pool) {
+    throw new Error("Base de dados indisponível.");
+  }
+
+  const email = userEmail.trim().toLowerCase();
+  const uniqueIds = Array.from(new Set((listingIds || []).filter(Boolean))).slice(0, 500);
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.query("DELETE FROM favorites WHERE user_email = ?", [email]);
+    for (const listingId of uniqueIds) {
+      await conn.query(
+        "INSERT IGNORE INTO favorites (user_email, listing_id) VALUES (?, ?)",
+        [email, listingId]
+      );
+    }
+    await conn.commit();
+  } catch (e) {
+    await conn.rollback();
+    console.error("Error saving favorites to MySQL:", e);
+    throw e;
+  } finally {
+    conn.release();
+  }
+}
+
+// ==========================================================
+// AVALIAÇÕES (sincronizadas por conta)
+// ==========================================================
+export async function getDbRatings(userEmail: string): Promise<Record<string, number>> {
+  if (!isDbConnected || !pool) return {};
+
+  try {
+    const [rows] = (await pool.query(
+      "SELECT listing_id as listingId, rating FROM ratings WHERE user_email = ?",
+      [userEmail.trim().toLowerCase()]
+    )) as [mysql.RowDataPacket[], unknown];
+
+    const result: Record<string, number> = {};
+    for (const row of rows) {
+      result[String(row.listingId)] = Number(row.rating);
+    }
+    return result;
+  } catch (e) {
+    console.error("Error loading ratings from MySQL:", e);
+    return {};
+  }
+}
+
+export async function saveDbRatings(userEmail: string, ratings: Record<string, number>): Promise<void> {
+  if (!isDbConnected || !pool) {
+    throw new Error("Base de dados indisponível.");
+  }
+
+  const email = userEmail.trim().toLowerCase();
+  const entries = Object.entries(ratings || {})
+    .filter(([listingId, rating]) => Boolean(listingId) && Number.isFinite(Number(rating)))
+    .slice(0, 500);
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.query("DELETE FROM ratings WHERE user_email = ?", [email]);
+    for (const [listingId, rating] of entries) {
+      await conn.query(
+        "INSERT INTO ratings (user_email, listing_id, rating) VALUES (?, ?, ?) " +
+        "ON DUPLICATE KEY UPDATE rating = VALUES(rating)",
+        [email, listingId, Math.max(1, Math.min(5, Math.round(Number(rating))))]
+      );
+    }
+    await conn.commit();
+  } catch (e) {
+    await conn.rollback();
+    console.error("Error saving ratings to MySQL:", e);
+    throw e;
+  } finally {
+    conn.release();
+  }
 }
 
