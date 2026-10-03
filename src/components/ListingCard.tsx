@@ -1,17 +1,13 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Heart, MapPin, Star, Eye } from "lucide-react";
+import { Heart, MapPin, Eye } from "lucide-react";
 import { motion } from "framer-motion";
 import { Listing, formatPrice, slugify } from "@/data/listings";
 import { useFavorites } from "@/context/FavoritesContext";
-import { useRatings } from "@/context/RatingsContext";
 
 const ListingCard = ({ listing, index = 0 }: { listing: Listing; index?: number }) => {
   const { isFavorite, toggleFavorite } = useFavorites();
-  const { getListingRating, getSellerRating } = useRatings();
   const fav = isFavorite(listing.id);
-  const { rating } = getListingRating(listing.id);
-  const sellerStats = getSellerRating(listing.seller);
   const [isLandscape, setIsLandscape] = useState(false);
   const [clicks, setClicks] = useState<number>(0);
 
@@ -78,8 +74,8 @@ const ListingCard = ({ listing, index = 0 }: { listing: Listing; index?: number 
         to={`/anuncio/${listing.id}/${slugify(listing.title)}`} 
         className="group block bg-card rounded-lg overflow-hidden border border-border/40 hover:shadow-md hover:border-primary/20 dark:hover:border-primary/30 transition-all duration-300"
       >
-        {/* Top Seller Bar */}
-        <div className="flex items-center justify-between px-3 py-2 border-b border-border/30 bg-card">
+        {/* Top Seller Bar — sem avaliação: a avaliação só aparece na página do anúncio */}
+        <div className="flex items-center px-3 py-2 border-b border-border/30 bg-card">
           <div className="flex items-center gap-1.5 truncate">
             <div className="w-5.5 h-5.5 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-[9px] shrink-0 border border-primary/20">
               {listing.seller.slice(0, 1).toUpperCase()}
@@ -87,10 +83,6 @@ const ListingCard = ({ listing, index = 0 }: { listing: Listing; index?: number 
             <span className="font-semibold truncate text-foreground/80 group-hover:text-primary text-[11px] transition-colors">
               {sellerUsername}
             </span>
-          </div>
-          <div className="flex items-center gap-0.5 shrink-0 text-[10px] text-muted-foreground font-semibold">
-            <Star className="h-2.5 w-2.5 fill-gold text-gold" />
-            <span>{sellerStats.rating ?? "Novo"}</span>
           </div>
         </div>
 
