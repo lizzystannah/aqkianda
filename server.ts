@@ -275,47 +275,65 @@ async function startServer() {
     next();
   });
 
+  // Um host é considerado público quando não é um alias interno do Docker
+  // (ex.: "quantterm_aqkianda:80") nem loopback. Aliases internos levam "_"
+  // e nunca são acessíveis pelo WhatsApp/Facebook.
+  const isPublicHost = (hostname: string): boolean => {
+    const host = (hostname || "").toLowerCase();
+    if (!host || host.includes("_")) return false;
+    if (host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0" || host === "::1") return true;
+    if (host.endsWith(".local")) return false;
+    return host.includes(".");
+  };
+
+  const normalizeBaseUrl = (raw: string): string | null => {
+    const value = (raw || "").trim();
+    if (!value) return null;
+    const withProto = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+    try {
+      const parsed = new URL(withProto);
+      if (!isPublicHost(parsed.hostname)) return null;
+      return `${parsed.protocol}//${parsed.host}`.replace(/\/+$/, "");
+    } catch {
+      return null;
+    }
+  };
+
   // Helper to determine the centralized Base URL on backend
   const getBackendBaseUrl = (req?: express.Request): string => {
-    let url = process.env.APP_URL || process.env.VITE_APP_URL || "";
-    if (url) {
-      url = url.trim();
-      if (!url.startsWith("http://") && !url.startsWith("https://")) {
-        url = `https://${url}`;
-      }
-      return url.replace(/\/+$/, "");
-    }
+    // 1. APP_URL configurado explicitamente. Se apontar para um alias interno
+    // do Docker (host com "_"), é ignorado — senão as meta tags OG saem com
+    // URLs inalcançáveis e o WhatsApp não gera pré-visualização.
+    const configured = normalizeBaseUrl(process.env.APP_URL || process.env.VITE_APP_URL || "");
+    if (configured) return configured;
+
     if (req) {
-      // 1. Check referer/origin header if present from browser request
+      // 2. Referer/Origin de pedidos feitos pelo navegador
       const ref = req.headers["referer"] || req.headers["origin"];
-      if (ref && typeof ref === "string" && !ref.includes("localhost") && !ref.includes("127.0.0.1") && !ref.includes("quantterm_")) {
-        try {
-          const parsed = new URL(ref);
-          return `${parsed.protocol}//${parsed.host}`.replace(/\/+$/, "");
-        } catch (e) {
-          // ignore invalid URL
-        }
+      if (ref && typeof ref === "string") {
+        const fromRef = normalizeBaseUrl(ref);
+        if (fromRef) return fromRef;
       }
 
-      // 2. Check X-Forwarded-Host or Host
+      // 3. X-Forwarded-Host / Host do proxy público (Traefik/Easypanel)
       const rawForwardedHost = req.headers["x-forwarded-host"];
       const rawForwardedProto = req.headers["x-forwarded-proto"];
-      
-      const proto = Array.isArray(rawForwardedProto) ? rawForwardedProto[0] : (rawForwardedProto ? rawForwardedProto.split(",")[0].trim() : (req.protocol || "https"));
-      
-      let host = Array.isArray(rawForwardedHost) ? rawForwardedHost[0] : (rawForwardedHost ? rawForwardedHost.split(",")[0].trim() : (req.headers["host"] || req.get("host") || ""));
+      const proto = Array.isArray(rawForwardedProto)
+        ? rawForwardedProto[0]
+        : (rawForwardedProto ? rawForwardedProto.split(",")[0].trim() : (req.protocol || "https"));
 
-      if (host.includes("quantterm_") || host.includes("127.0.0.1") || host.includes("localhost")) {
-        const hostHeader = req.get("host") || "";
-        if (hostHeader && !hostHeader.includes("quantterm_")) {
-          host = hostHeader;
-        }
-      }
+      const forwardedHost = Array.isArray(rawForwardedHost)
+        ? rawForwardedHost[0]
+        : (rawForwardedHost ? rawForwardedHost.split(",")[0].trim() : "");
+      const hostHeader = req.get("host") || "";
 
-      if (host && !host.includes("quantterm_")) {
-        return `${proto}://${host}`.replace(/\/+$/, "");
+      for (const candidate of [forwardedHost, hostHeader]) {
+        const fromHost = normalizeBaseUrl(`${proto}://${candidate}`);
+        if (fromHost) return fromHost;
       }
     }
+
+    // 4. Último recurso (ambiente local)
     return `http://localhost:${PORT}`;
   };
 
