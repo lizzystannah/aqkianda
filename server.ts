@@ -458,6 +458,129 @@ async function startServer() {
     res.send(content);
   });
 
+  // ==========================================================
+  // SOCIAL PREVIEWS (Facebook / WhatsApp / Telegram / X)
+  // Os crawlers não executam JavaScript: só leem o HTML bruto do
+  // servidor. Por isso servimos o index.html com meta tags OG /
+  // Twitter absolutas — e em /anuncio/:id com título, preço e foto
+  // reais do anúncio quando o visitante é um crawler.
+  // Utilizadores normais seguem sempre para o SPA (next()).
+  // ==========================================================
+  const CRAWLER_RE = /facebookexternalhit|facebot|whatsapp|twitterbot|linkedinbot|telegrambot|slackbot|discordbot|pinterestbot|googlebot|bingbot|duckduckbot|baiduspider|yandexbot/i;
+
+  const escapeHtmlAttr = (s: string): string =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+  const toAbsoluteUrl = (maybeRelative: string, baseUrl: string): string => {
+    const v = (maybeRelative || "").trim();
+    if (!v) return "";
+    if (/^https?:\/\//i.test(v)) return v;
+    return `${baseUrl}${v.startsWith("/") ? v : `/${v}`}`;
+  };
+
+  const readIndexHtml = (): string | null => {
+    const candidates = [
+      path.join(process.cwd(), "dist", "index.html"),
+      path.join(process.cwd(), "index.html"),
+    ];
+    for (const file of candidates) {
+      try {
+        if (fs.existsSync(file)) return fs.readFileSync(file, "utf-8");
+      } catch {
+        // tenta o próximo candidato
+      }
+    }
+    return null;
+  };
+
+  interface SocialMeta {
+    title: string;
+    description: string;
+    image: string;
+    url: string;
+    type: string;
+  }
+
+  const injectSocialMeta = (html: string, meta: SocialMeta): string => {
+    let out = html.replace(/<meta\s+(?:property="og:[^"]+"|name="twitter:[^"]+")\s+content="[^"]*"\s*\/?>/gi, "");
+    out = out.replace(/<link\s+rel="canonical"\s+href="[^"]*"\s*\/?>/gi, "");
+    const tags = [
+      `<meta property="og:site_name" content="Aqkianda" />`,
+      `<meta property="og:locale" content="pt_AO" />`,
+      `<meta property="og:title" content="${escapeHtmlAttr(meta.title)}" />`,
+      `<meta property="og:description" content="${escapeHtmlAttr(meta.description)}" />`,
+      `<meta property="og:type" content="${meta.type}" />`,
+      `<meta property="og:url" content="${escapeHtmlAttr(meta.url)}" />`,
+      meta.image ? `<meta property="og:image" content="${escapeHtmlAttr(meta.image)}" />` : "",
+      `<meta name="twitter:card" content="summary_large_image" />`,
+      `<meta name="twitter:title" content="${escapeHtmlAttr(meta.title)}" />`,
+      `<meta name="twitter:description" content="${escapeHtmlAttr(meta.description)}" />`,
+      meta.image ? `<meta name="twitter:image" content="${escapeHtmlAttr(meta.image)}" />` : "",
+      `<link rel="canonical" href="${escapeHtmlAttr(meta.url)}" />`,
+    ].filter(Boolean).join("\n    ");
+    if (out.includes("</head>")) return out.replace("</head>", `    ${tags}\n  </head>`);
+    return `${out}\n${tags}`;
+  };
+
+  const DEFAULT_SOCIAL_IMAGE = "/bg-categories.png";
+  const DEFAULT_SOCIAL_TITLE = "Aqkianda — Marketplace angolano para comprar e vender";
+  const DEFAULT_SOCIAL_DESC = "Aqkianda é o marketplace angolano onde compras e vendes produtos novos e usados: eletrónica, viaturas, moda, casa e mais.";
+
+  // Preview dinâmico por anúncio SÓ para crawlers
+  const serveListingPreview: express.RequestHandler = async (req, res, next) => {
+    try {
+      const ua = (req.headers["user-agent"] || "").toString();
+      if (!CRAWLER_RE.test(ua)) return next();
+      const listing = await getDbListingById(req.params.id);
+      if (!listing) return next();
+      const template = readIndexHtml();
+      if (!template) return next();
+      const baseUrl = getBackendBaseUrl(req);
+      const price = Number(listing.price) > 0
+        ? ` — ${Number(listing.price).toLocaleString("pt-AO")} ${listing.currency || "AOA"}`
+        : "";
+      const html = injectSocialMeta(template, {
+        title: `${listing.title}${price} | Aqkianda`,
+        description: (listing.description || "Ver anúncio no Aqkianda.").slice(0, 200),
+        image: toAbsoluteUrl(listing.image, baseUrl) || toAbsoluteUrl(DEFAULT_SOCIAL_IMAGE, baseUrl),
+        url: `${baseUrl}/anuncio/${listing.id}`,
+        type: "article",
+      });
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "public, max-age=3600");
+      return res.send(html);
+    } catch (e) {
+      console.error("Erro ao gerar preview social:", e);
+      return next();
+    }
+  };
+
+  app.get("/anuncio/:id", serveListingPreview);
+  app.get("/anuncio/:id/:slug", serveListingPreview);
+
+  // Preview por omissão (homepage e restantes páginas) SÓ para crawlers.
+  // Sem isto, o express.static / Vite servem o index.html "cru" com
+  // og:image relativo e o WhatsApp não consegue gerar o cartão.
+  const serveDefaultPreview: express.RequestHandler = (req, res, next) => {
+    const ua = (req.headers["user-agent"] || "").toString();
+    if (!CRAWLER_RE.test(ua)) return next();
+    const template = readIndexHtml();
+    if (!template) return next();
+    const baseUrl = getBackendBaseUrl(req);
+    const html = injectSocialMeta(template, {
+      title: DEFAULT_SOCIAL_TITLE,
+      description: DEFAULT_SOCIAL_DESC,
+      image: toAbsoluteUrl(DEFAULT_SOCIAL_IMAGE, baseUrl),
+      url: `${baseUrl}${req.path}`,
+      type: "website",
+    });
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    return res.send(html);
+  };
+
+  app.get("/", serveDefaultPreview);
+
 
   // ==========================================================
   // REAL LISTINGS API (ANÚNCIOS CENTRALIZADOS NO MYSQL)
@@ -1230,6 +1353,12 @@ async function startServer() {
     next();
   });
 
+  // Crawlers em qualquer página interna (dev e produção). Ignora assets/API.
+  app.get(/^\/(?!api\/|assets\/|uploads\/).*/, (req, res, next) => {
+    if (path.extname(req.path)) return next();
+    return serveDefaultPreview(req, res, next);
+  });
+
   // Dev mode: Vite middleware
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -1240,12 +1369,29 @@ async function startServer() {
   } else {
     // Production mode: Serve static frontend build
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
+    // index: false -> não servir index.html diretamente em "/", para que o
+    // handler abaixo injete as meta tags OG absolutas também nessa rota.
+    app.use(express.static(distPath, { index: false }));
     app.get("/{*path}", (req, res) => {
       res.setHeader("Cache-Control", "no-store");
-      res.sendFile(path.join(distPath, "index.html"), {
-        headers: { "Cache-Control": "no-store" }
-      });
+      // Absolutiza as tags sociais com o domínio real (crawlers exigem URLs absolutas)
+      try {
+        const template = fs.readFileSync(path.join(distPath, "index.html"), "utf-8");
+        const baseUrl = getBackendBaseUrl(req);
+        const html = injectSocialMeta(template, {
+          title: DEFAULT_SOCIAL_TITLE,
+          description: DEFAULT_SOCIAL_DESC,
+          image: toAbsoluteUrl(DEFAULT_SOCIAL_IMAGE, baseUrl),
+          url: `${baseUrl}${req.path}`,
+          type: "website",
+        });
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        return res.send(html);
+      } catch {
+        return res.sendFile(path.join(distPath, "index.html"), {
+          headers: { "Cache-Control": "no-store" }
+        });
+      }
     });
   }
 
