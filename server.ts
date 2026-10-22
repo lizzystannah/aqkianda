@@ -544,6 +544,26 @@ async function startServer() {
   const DEFAULT_SOCIAL_TITLE = "Aqkianda — Marketplace angolano para comprar e vender";
   const DEFAULT_SOCIAL_DESC = "Aqkianda é o marketplace angolano onde compras e vendes produtos novos e usados: eletrónica, viaturas, moda, casa e mais.";
 
+  // Imagem de preview do site = foto de um dos banners ativos (o primeiro).
+  // Cache curto para não consultar o MySQL em cada navegação.
+  let bannerImageCache: { raw: string; at: number } | null = null;
+  const getBannerSocialImage = async (): Promise<string> => {
+    if (bannerImageCache && Date.now() - bannerImageCache.at < 5 * 60 * 1000) {
+      return bannerImageCache.raw;
+    }
+    try {
+      const banners = await getAllDbBanners();
+      const banner = banners.find((b) => b.isActive !== false && b.image);
+      if (banner?.image) {
+        bannerImageCache = { raw: banner.image, at: Date.now() };
+        return banner.image;
+      }
+    } catch {
+      // usa a imagem de reserva
+    }
+    return DEFAULT_SOCIAL_IMAGE;
+  };
+
   // Preview dinâmico por anúncio SÓ para crawlers
   const serveListingPreview: express.RequestHandler = async (req, res, next) => {
     try {
@@ -560,7 +580,7 @@ async function startServer() {
       const html = injectSocialMeta(template, {
         title: `${listing.title}${price} | Aqkianda`,
         description: (listing.description || "Ver anúncio no Aqkianda.").slice(0, 200),
-        image: toAbsoluteUrl(listing.image, baseUrl) || toAbsoluteUrl(DEFAULT_SOCIAL_IMAGE, baseUrl),
+        image: toAbsoluteUrl(listing.image, baseUrl) || toAbsoluteUrl(await getBannerSocialImage(), baseUrl),
         url: `${baseUrl}/anuncio/${listing.id}`,
         type: "article",
       });
@@ -579,7 +599,7 @@ async function startServer() {
   // Preview por omissão (homepage e restantes páginas) SÓ para crawlers.
   // Sem isto, o express.static / Vite servem o index.html "cru" com
   // og:image relativo e o WhatsApp não consegue gerar o cartão.
-  const serveDefaultPreview: express.RequestHandler = (req, res, next) => {
+  const serveDefaultPreview: express.RequestHandler = async (req, res, next) => {
     const ua = (req.headers["user-agent"] || "").toString();
     if (!CRAWLER_RE.test(ua)) return next();
     const template = readIndexHtml();
@@ -588,7 +608,7 @@ async function startServer() {
     const html = injectSocialMeta(template, {
       title: DEFAULT_SOCIAL_TITLE,
       description: DEFAULT_SOCIAL_DESC,
-      image: toAbsoluteUrl(DEFAULT_SOCIAL_IMAGE, baseUrl),
+      image: toAbsoluteUrl(await getBannerSocialImage(), baseUrl),
       url: `${baseUrl}${req.path}`,
       type: "website",
     });
@@ -1390,7 +1410,7 @@ async function startServer() {
     // index: false -> não servir index.html diretamente em "/", para que o
     // handler abaixo injete as meta tags OG absolutas também nessa rota.
     app.use(express.static(distPath, { index: false }));
-    app.get("/{*path}", (req, res) => {
+    app.get("/{*path}", async (req, res) => {
       res.setHeader("Cache-Control", "no-store");
       // Absolutiza as tags sociais com o domínio real (crawlers exigem URLs absolutas)
       try {
@@ -1399,7 +1419,7 @@ async function startServer() {
         const html = injectSocialMeta(template, {
           title: DEFAULT_SOCIAL_TITLE,
           description: DEFAULT_SOCIAL_DESC,
-          image: toAbsoluteUrl(DEFAULT_SOCIAL_IMAGE, baseUrl),
+          image: toAbsoluteUrl(await getBannerSocialImage(), baseUrl),
           url: `${baseUrl}${req.path}`,
           type: "website",
         });
