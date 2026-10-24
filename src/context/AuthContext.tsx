@@ -283,11 +283,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify({ identifier: cleanInput, email: cleanInput, password: pass })
       });
 
-      if (res.status === 401) {
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
         toast({
           variant: "destructive",
-          title: "Palavra-passe incorreta",
-          description: "A palavra-passe inserida está incorreta. Tenta novamente.",
+          title: "Não foi possível iniciar sessão",
+          description: (errorData as { error?: string }).error || "Credenciais inválidas.",
         });
         return false;
       }
@@ -365,7 +366,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const cleanEmail = email.trim().toLowerCase();
     const cleanName = name.trim();
     const cleanPhone = normalizePhoneNumber(phone);
-    const newUserId = `usr-${Date.now()}`;
     const userAvatar = cleanName
       .split(" ")
       .map((n) => n[0])
@@ -378,7 +378,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          id: newUserId,
           name: cleanName,
           email: cleanEmail,
           phone: cleanPhone,
@@ -405,7 +404,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         const serverUser = data.user;
         const newUser: User = {
-          id: serverUser?.id || newUserId,
+          id: serverUser?.id || `local-${Date.now()}`,
           name: serverUser?.name || cleanName,
           email: serverUser?.email || cleanEmail,
           phone: serverUser?.phone || cleanPhone,

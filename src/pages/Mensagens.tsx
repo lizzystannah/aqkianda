@@ -351,7 +351,7 @@ const Mensagens = () => {
         try {
           const res = await fetch("/api/upload", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...getAuthHeaders() },
             body: JSON.stringify({ image: compressed, name: file.name }),
           });
           if (res.ok) {

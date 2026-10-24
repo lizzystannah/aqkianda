@@ -12,7 +12,6 @@ import {
   incrementVisit, 
   incrementShare, 
   incrementSignup, 
-  isDbConnected,
   findDbUserByEmail,
   findDbUserByIdentifier,
   createDbUser,
@@ -48,9 +47,11 @@ import {
   saveDbFavorites,
   getDbRatings,
   saveDbRatings,
-  getDbRatingsSummary
+  getDbRatingsSummary,
+  normalizeEmail,
+  isValidEmail
 } from "./server/db.js";
-import { uploadImageToStorage, isR2Configured, testR2Upload, getR2ObjectStream, deleteR2Object } from "./server/r2.js";
+import { uploadImageToStorage, testR2Upload, getR2ObjectStream, deleteR2Object } from "./server/r2.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -63,6 +64,17 @@ const JWT_SECRET: string = process.env.JWT_SECRET || (() => {
   }
   return "aqkianda-dev-secret-key-2026";
 })();
+
+if (process.env.NODE_ENV === "production") {
+  const configuredJwtSecret = process.env.JWT_SECRET || "";
+  if (configuredJwtSecret && configuredJwtSecret.length < 32) {
+    console.warn("⚠️ AVISO DE SEGURANÇA: JWT_SECRET deve ter pelo menos 32 caracteres.");
+  }
+  const configuredAdminPassword = process.env.ADMIN_PASSWORD || process.env.ROOT_PASSWORD || "";
+  if (configuredAdminPassword && configuredAdminPassword.length < 12) {
+    console.warn("⚠️ AVISO DE SEGURANÇA: ADMIN_PASSWORD/ROOT_PASSWORD deve ter pelo menos 12 caracteres.");
+  }
+}
 
 export interface JwtUserPayload {
   id: string;
@@ -87,6 +99,8 @@ declare global {
 // Versão do token: invalida todas as sessões existentes quando alterada.
 // Subir AUTH_TOKEN_VERSION (env) faz logout global imediato, sem depender de datas.
 const AUTH_TOKEN_VERSION = process.env.AUTH_TOKEN_VERSION || "1";
+
+const DEFAULT_SECURITY_QUESTION = "Qual é a tua comida tradicional angolana favorita?";
 
 export function generateToken(payload: JwtUserPayload): string {
   return jwt.sign({ ...payload, v: AUTH_TOKEN_VERSION }, JWT_SECRET, { expiresIn: "7d" });
@@ -228,16 +242,61 @@ const analyticsLimiter = rateLimit({
   validate: { trustProxy: false }
 });
 
+// Constrói identificadores de conversa exclusivamente no servidor, com o mesmo
+// formato determinístico usado pelo cliente, para que ambos os lados agrupem
+// as mensagens na mesma conversa sem confiar em valores enviados pelo cliente.
+function sanitizeConversationPart(value: string | undefined): string {
+  return (value || "geral")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .slice(0, 40) || "geral";
+}
+
+function buildServerConversationId(listingId: string | undefined, emailA: string, emailB: string): string {
+  const a = normalizeEmail(emailA);
+  const b = normalizeEmail(emailB);
+  const lid = sanitizeConversationPart(listingId);
+  const sorted = [a, b].sort();
+  return `lst_${lid}__${sorted[0]}__${sorted[1]}`.slice(0, 128);
+}
+
+function parseConversationId(conversationId: string): { listingId?: string; members: string[] } {
+  const raw = (conversationId || "").trim().toLowerCase();
+  if (!raw) return { members: [] };
+
+  if (raw.startsWith("lst_")) {
+    const parts = raw.slice(4).split("__");
+    const listingId = parts[0] || undefined;
+    const members = parts.slice(1).map((p) => p.trim()).filter((p) => isValidEmail(p));
+    return { listingId, members };
+  }
+
+  const members = raw.split("__").map((p) => p.trim()).filter((p) => isValidEmail(p));
+  return { members };
+}
+
 async function startServer() {
   // Initialize MySQL database connection or fallback gracefully
   await initializeDatabase();
 
   const app = express();
   app.set("trust proxy", 1);
+  app.disable("x-powered-by");
   const PORT = process.env.PORT || 3000;
 
-  app.use(express.json({ limit: "25mb" }));
-  app.use(express.urlencoded({ extended: true, limit: "25mb" }));
+  // Limite global reduzido; apenas o upload de imagens autenticado aceita mais.
+  const defaultJsonParser = express.json({ limit: "2mb" });
+  const uploadJsonParser = express.json({ limit: "8mb" });
+  app.use((req, res, next) => {
+    if (req.path === "/api/upload" && req.method !== "OPTIONS") {
+      // Autentica antes de ler o corpo maior, para que pedidos anónimos não
+      // consumam memória com payloads de vários MB.
+      return requireAuth(req, res, () => uploadJsonParser(req, res, next));
+    }
+    return defaultJsonParser(req, res, next);
+  });
+  app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 
   // Ensure uploads directory exists and serve statically with security headers
   const uploadsDir = path.join(process.cwd(), "public", "uploads");
@@ -249,7 +308,13 @@ async function startServer() {
     }
   }
   
-  app.use("/uploads", express.static(uploadsDir, {
+  app.use("/uploads", (req, res, next) => {
+    // Apenas imagens geradas pelo uploader podem ser servidas publicamente.
+    if (!/\.(?:jpe?g|png|webp)$/i.test(req.path)) {
+      return res.status(404).end();
+    }
+    next();
+  }, express.static(uploadsDir, {
     setHeaders: (res) => {
       res.setHeader("X-Content-Type-Options", "nosniff");
       res.setHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox");
@@ -264,13 +329,42 @@ async function startServer() {
     next();
   });
 
-  // CORS headers for API calls
+  // CORS restrito a origens explicitamente configuradas. A aplicação é servida
+  // pelo mesmo servidor, pelo que não precisa de wildcard para funcionar.
+  const allowedCorsOrigins = new Set<string>();
+  const addAllowedOrigin = (raw: string | undefined) => {
+    for (const part of (raw || "").split(",")) {
+      const value = part.trim();
+      if (!value || value === "*") continue;
+      try {
+        const parsed = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
+        allowedCorsOrigins.add(parsed.origin);
+      } catch {
+        // Ignora entradas inválidas em vez de abrir CORS por engano.
+      }
+    }
+  };
+  addAllowedOrigin(process.env.CORS_ALLOWED_ORIGINS);
+  addAllowedOrigin(process.env.APP_URL);
+  addAllowedOrigin(process.env.VITE_APP_URL);
+  if (process.env.NODE_ENV !== "production") {
+    allowedCorsOrigins.add("http://localhost:8080");
+    allowedCorsOrigins.add("http://127.0.0.1:8080");
+    allowedCorsOrigins.add("http://localhost:3000");
+    allowedCorsOrigins.add("http://127.0.0.1:3000");
+  }
+
   app.use((req, res, next) => {
-    res.header("Access-Control-Allow-Origin", "*");
-    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
-    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    const origin = typeof req.headers.origin === "string" ? req.headers.origin : "";
+    const isAllowed = Boolean(origin && allowedCorsOrigins.has(origin));
+    if (isAllowed) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+      res.setHeader("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    }
     if (req.method === "OPTIONS") {
-      return res.sendStatus(200);
+      return isAllowed || !origin ? res.sendStatus(204) : res.sendStatus(403);
     }
     next();
   });
@@ -337,30 +431,22 @@ async function startServer() {
     return `http://localhost:${PORT}`;
   };
 
-  // API Endpoints for backend integration
-  app.get("/api/config", (req, res) => {
+  // API Endpoints for backend integration (sem expor URL/base ou estado interno)
+  app.get("/api/config", (_req, res) => {
     res.json({
-      appUrl: getBackendBaseUrl(req),
       name: "Aqkianda Marketplace",
       version: "1.0.0"
     });
   });
 
-  app.get("/api/health", (req, res) => {
-    res.json({
-      status: "online",
-      app: "Aqkianda Marketplace",
-      appUrl: getBackendBaseUrl(req),
-      timestamp: new Date().toISOString(),
-      environment: process.env.NODE_ENV || "development",
-      mysql: isDbConnected ? "connected" : "fallback_mode",
-      r2Storage: isR2Configured() ? "active" : "not_configured"
-    });
+  app.get("/api/health", (_req, res) => {
+    res.json({ status: "ok" });
   });
 
-  app.get("/api/test-r2", async (req, res) => {
+  // Diagnóstico destrutivo (escreve um objeto de teste): apenas administradores.
+  app.get("/api/test-r2", requireAdmin, async (_req, res) => {
     const result = await testR2Upload();
-    res.status(result.success ? 200 : 400).json(result);
+    res.status(result.success ? 200 : 500).json({ success: result.success });
   });
 
   // Serve R2 files directly via backend proxy if public domain is not configured
@@ -368,8 +454,16 @@ async function startServer() {
     try {
       const paramMap = req.params as unknown as Record<string, string | undefined>;
       const rawKey = paramMap[0] || req.path.replace(/^\/api\/r2-file\//, "");
-      const key = decodeURIComponent(rawKey).trim();
-      if (!key || key.includes("..") || key.startsWith("/") || !key.startsWith("uploads/")) {
+      let key = "";
+      try {
+        key = decodeURIComponent(rawKey).trim();
+      } catch {
+        return res.status(400).send("Chave de ficheiro inválida");
+      }
+
+      // Apenas chaves geradas pelo uploader, no formato uploads/<nome>.<ext>.
+      const safeKeyPattern = /^uploads\/[A-Za-z0-9._-]+\.(?:jpe?g|png|webp)$/i;
+      if (!key || !safeKeyPattern.test(key)) {
         return res.status(400).send("Chave de ficheiro inválida ou não autorizada");
       }
 
@@ -378,7 +472,14 @@ async function startServer() {
         return res.status(404).send("File not found in R2");
       }
 
-      res.setHeader("Content-Type", fileData.contentType);
+      const contentType = String(fileData.contentType || "");
+      if (!/^image\/(?:jpeg|png|webp)$/i.test(contentType)) {
+        return res.status(403).send("Tipo de ficheiro não autorizado");
+      }
+
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("Content-Security-Policy", "default-src 'none'; sandbox");
       res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
 
       const stream = fileData.stream as unknown as { pipe?: (res: unknown) => void; transformToByteArray?: () => Promise<Uint8Array> };
@@ -628,8 +729,7 @@ async function startServer() {
       const items = await getAllDbListings();
       res.json(items);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Erro desconhecido";
-      res.status(500).json({ error: "Erro ao obter anúncios", message });
+      res.status(500).json({ error: "Erro ao obter anúncios" });
     }
   });
 
@@ -641,8 +741,7 @@ async function startServer() {
       }
       res.json(item);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Erro desconhecido";
-      res.status(500).json({ error: "Erro ao obter anúncio", message });
+      res.status(500).json({ error: "Erro ao obter anúncio" });
     }
   });
 
@@ -799,7 +898,7 @@ async function startServer() {
   app.post("/api/upload", uploadLimiter, async (req, res) => {
     try {
       const { image, name } = req.body;
-      if (!image) {
+      if (typeof image !== "string" || !image) {
         return res.status(400).json({ error: "Nenhuma imagem fornecida" });
       }
 
@@ -807,8 +906,14 @@ async function startServer() {
       res.json(result);
     } catch (error) {
       console.error("Erro no upload:", error);
-      const message = error instanceof Error ? error.message : "Erro ao processar imagem";
-      res.status(400).json({ error: message });
+      const isSafeMessage = error instanceof Error && (
+        error.message.startsWith("Ficheiro inválido") ||
+        error.message.startsWith("Formato de imagem") ||
+        error.message.startsWith("Imagem demasiado grande")
+      );
+      const message = isSafeMessage ? (error as Error).message : "Não foi possível processar a imagem.";
+      const status = isSafeMessage && message.startsWith("Imagem demasiado grande") ? 413 : 400;
+      res.status(status).json({ error: message });
     }
   });
 
@@ -818,42 +923,95 @@ async function startServer() {
   app.get("/api/messages", requireAuth, async (req, res) => {
     try {
       const currentUser = req.user!;
-      const emailOrKey = (req.query.user || req.query.conversationId || "").toString().trim().toLowerCase();
-      
-      const msgs = await getDbMessages(emailOrKey || currentUser.email);
-      const isAdmin = currentUser.role === "admin" || isAdminEmail(currentUser.email);
-      
-      // Proteger contra IDOR: Utilizadores comuns só podem ler as suas próprias mensagens
-      const authorizedMsgs = msgs.filter(m => {
-        if (isAdmin) return true;
-        const sender = (m.senderEmail || "").toLowerCase();
-        const receiver = (m.receiverEmail || "").toLowerCase();
-        const userEmail = currentUser.email.toLowerCase();
-        return sender === userEmail || receiver === userEmail || m.conversationId.toLowerCase().includes(userEmail);
-      });
+      const currentEmail = normalizeEmail(currentUser.email);
+      if (!currentEmail) {
+        return res.status(401).json({ error: "Sessão inválida." });
+      }
 
-      res.json(authorizedMsgs);
+      // O parâmetro ?user= nunca é usado como fonte de verdade. Se for enviado,
+      // tem de corresponder ao utilizador autenticado.
+      const requestedUser = req.query.user != null ? normalizeEmail(String(req.query.user)) : "";
+      if (requestedUser && requestedUser !== currentEmail) {
+        return res.status(403).json({ error: "Não autorizado a aceder a mensagens de outro utilizador." });
+      }
+
+      // A consulta já devolve apenas mensagens em que o utilizador é remetente
+      // ou destinatário exato — nunca por correspondência parcial de conversa.
+      const msgs = await getDbMessages(currentEmail);
+      res.json(msgs);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Erro desconhecido";
-      res.status(500).json({ error: "Erro ao obter mensagens", message });
+      res.status(500).json({ error: "Erro ao obter mensagens" });
     }
   });
 
   app.post("/api/messages", requireAuth, messagesLimiter, async (req, res) => {
     try {
       const currentUser = req.user!;
-      const { conversationId, receiverId, receiverEmail, listingId, productName, content, image } = req.body;
+      const currentEmail = normalizeEmail(currentUser.email);
+      if (!currentEmail) {
+        return res.status(401).json({ error: "Sessão inválida." });
+      }
+
+      const {
+        conversationId,
+        receiverEmail: receiverEmailFromClient,
+        listingId: listingIdFromClient,
+        productName,
+        content,
+        image
+      } = req.body;
 
       if (!content && !image) {
         return res.status(400).json({ error: "Mensagem ou imagem é obrigatória." });
       }
 
+      const parsed = parseConversationId(typeof conversationId === "string" ? conversationId : "");
+
+      // Se a conversa indicada já identifica participantes, o utilizador atual
+      // tem de ser um deles. O destinatário é o outro participante.
+      if (parsed.members.length > 0 && !parsed.members.includes(currentEmail)) {
+        return res.status(403).json({ error: "Não autorizado a enviar mensagens nesta conversa." });
+      }
+      let receiverEmail = parsed.members.find((email) => email !== currentEmail) || "";
+
+      const listingId = typeof listingIdFromClient === "string" && listingIdFromClient.trim()
+        ? listingIdFromClient.trim()
+        : parsed.listingId;
+
+      // Sem outro participante na conversa, o vendedor do anúncio é a fonte
+      // de verdade para o destinatário.
+      if (!receiverEmail && listingId) {
+        const listing = await getDbListingById(listingId);
+        const sellerEmail = normalizeEmail(listing?.sellerEmail);
+        if (sellerEmail && sellerEmail !== currentEmail) {
+          receiverEmail = sellerEmail;
+        }
+      }
+
+      // Último recurso: aceitar o email do cliente apenas se for válido, não for
+      // o próprio utilizador e corresponder a uma conta existente.
+      if (!receiverEmail) {
+        const candidate = normalizeEmail(receiverEmailFromClient);
+        if (isValidEmail(candidate) && candidate !== currentEmail) {
+          const candidateUser = await findDbUserByEmail(candidate);
+          if (candidateUser) {
+            receiverEmail = candidate;
+          }
+        }
+      }
+
+      if (!receiverEmail) {
+        return res.status(400).json({ error: "Destinatário da mensagem não identificado." });
+      }
+
+      // conversationId e receiverEmail são sempre reconstruídos no servidor.
+      const finalConversationId = buildServerConversationId(listingId, currentEmail, receiverEmail);
+
       const created = await createDbMessage({
-        conversationId,
+        conversationId: finalConversationId,
         senderId: currentUser.id,
         senderName: currentUser.name,
-        senderEmail: currentUser.email,
-        receiverId,
+        senderEmail: currentEmail,
         receiverEmail,
         listingId,
         productName,
@@ -864,8 +1022,7 @@ async function startServer() {
 
       res.status(201).json({ success: true, message: created });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Erro desconhecido";
-      res.status(500).json({ error: "Erro ao enviar mensagem", message });
+      res.status(500).json({ error: "Erro ao enviar mensagem" });
     }
   });
 
@@ -914,8 +1071,7 @@ async function startServer() {
       const history = await getTrafficHistory();
       res.json(history);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Erro desconhecido";
-      res.status(500).json({ error: "Erro ao obter tráfego do servidor", message });
+      res.status(500).json({ error: "Erro ao obter tráfego do servidor" });
     }
   });
 
@@ -927,8 +1083,7 @@ async function startServer() {
       await incrementVisit(!!isRegistered, finalSource);
       res.json({ success: true });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Erro desconhecido";
-      res.status(500).json({ error: "Erro ao registar visita", message });
+      res.status(500).json({ error: "Erro ao registar visita" });
     }
   });
 
@@ -937,8 +1092,7 @@ async function startServer() {
       await incrementShare();
       res.json({ success: true });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Erro desconhecido";
-      res.status(500).json({ error: "Erro ao registar partilha", message });
+      res.status(500).json({ error: "Erro ao registar partilha" });
     }
   });
 
@@ -947,8 +1101,7 @@ async function startServer() {
       await incrementSignup();
       res.json({ success: true });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Erro desconhecido";
-      res.status(500).json({ error: "Erro ao registar inscrição", message });
+      res.status(500).json({ error: "Erro ao registar inscrição" });
     }
   });
 
@@ -957,26 +1110,28 @@ async function startServer() {
   // ==========================================================
   app.post("/api/auth/register", authLimiter, async (req, res) => {
     try {
-      const { id, name, email, phone, password, location, securityQuestion, securityAnswer } = req.body;
-      if (!email || !name) {
+      const { name, email, phone, password, location, securityQuestion, securityAnswer } = req.body;
+      const cleanEmail = normalizeEmail(email);
+      if (!name || !cleanEmail) {
         return res.status(400).json({ error: "Nome e email são obrigatórios" });
+      }
+      if (!isValidEmail(cleanEmail)) {
+        return res.status(400).json({ error: "O email indicado não é válido." });
       }
       if (!password || password.length < 6) {
         return res.status(400).json({ error: "A palavra-passe deve conter pelo menos 6 caracteres." });
       }
-      const cleanEmail = email.trim().toLowerCase();
       const existing = await findDbUserByEmail(cleanEmail);
       if (existing) {
         return res.status(409).json({ error: "Já existe uma conta associada a este e-mail" });
       }
       const user = await createDbUser({
-        id: id || `usr-${Date.now()}`,
         name: name.trim(),
         email: cleanEmail,
         phone,
         password,
         location: location || "Luanda, Angola",
-        securityQuestion: securityQuestion || "Qual é a tua comida tradicional angolana favorita?",
+        securityQuestion: securityQuestion || DEFAULT_SECURITY_QUESTION,
         securityAnswer: securityAnswer || ""
       });
       await incrementSignup();
@@ -1012,61 +1167,62 @@ async function startServer() {
   app.post("/api/auth/login", authLimiter, async (req, res) => {
     try {
       const { email, identifier, password } = req.body;
-      const cleanIdentifier = (identifier || email || "").trim();
+      const cleanIdentifier = normalizeEmail(identifier || email);
       if (!cleanIdentifier || !password) {
         return res.status(400).json({ error: "Email/número de telemóvel e palavra-passe são obrigatórios" });
       }
+
       const user = await findDbUserByIdentifier(cleanIdentifier);
-      if (user) {
-        if (user.status === "banned" || user.status === "suspended") {
-          return res.status(403).json({ error: "Esta conta encontra-se suspensa. Contacte o suporte." });
-        }
-
-        const envAdminPass = getAdminPassword();
-        const isRoot = isAdminEmail(user.email);
-        let isValid = false;
-
-        if (isRoot && envAdminPass) {
-          isValid = await verifyPassword(password, envAdminPass);
-        }
-        
-        if (!isValid) {
-          isValid = await verifyPassword(password, user.password);
-        }
-        
-        if (!isValid) {
-          return res.status(401).json({ error: "Palavra-passe incorreta" });
-        }
-
-        // Migração silenciosa de password legada para bcrypt hash
-        if (user.password && !user.password.startsWith("$2a$") && !user.password.startsWith("$2b$")) {
-          await upgradePasswordHashIfLegacy(user.email, password, user.password);
-        }
-
-        const token = generateToken({
-          id: user.id,
-          email: user.email,
-          role: user.role || "user",
-          name: user.name,
-          tv: user.tokenVersion ?? 1
-        });
-
-        return res.json({ 
-          success: true, 
-          token,
-          user: {
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            phone: user.phone,
-            role: user.role,
-            avatar: user.avatar,
-            location: user.location,
-            securityQuestion: user.securityQuestion
-          } 
-        });
+      if (!user) {
+        return res.status(401).json({ error: "Credenciais inválidas." });
       }
-      return res.status(404).json({ error: "Utilizador não encontrado" });
+      if (user.status === "banned" || user.status === "suspended") {
+        return res.status(403).json({ error: "Não foi possível iniciar sessão." });
+      }
+
+      const envAdminPass = getAdminPassword();
+      const isRoot = isAdminEmail(user.email);
+      let isValid = false;
+
+      if (isRoot && envAdminPass) {
+        isValid = await verifyPassword(password, envAdminPass);
+      }
+
+      if (!isValid) {
+        isValid = await verifyPassword(password, user.password);
+      }
+
+      if (!isValid) {
+        return res.status(401).json({ error: "Credenciais inválidas." });
+      }
+
+      // Migração silenciosa de password legada para bcrypt hash
+      if (user.password && !user.password.startsWith("$2a$") && !user.password.startsWith("$2b$")) {
+        await upgradePasswordHashIfLegacy(user.email, password, user.password);
+      }
+
+      const token = generateToken({
+        id: user.id,
+        email: user.email,
+        role: user.role || "user",
+        name: user.name,
+        tv: user.tokenVersion ?? 1
+      });
+
+      return res.json({
+        success: true,
+        token,
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          role: user.role,
+          avatar: user.avatar,
+          location: user.location,
+          securityQuestion: user.securityQuestion
+        }
+      });
     } catch (error) {
       console.error("Erro no login:", error);
       res.status(500).json({ error: "Erro ao autenticar utilizador." });
@@ -1178,14 +1334,14 @@ async function startServer() {
   app.post("/api/auth/forgot-password/question", authLimiter, async (req, res) => {
     try {
       const { identifier } = req.body;
-      if (!identifier) {
+      const cleanIdentifier = normalizeEmail(identifier);
+      if (!cleanIdentifier) {
         return res.status(400).json({ error: "Email ou telefone é obrigatório" });
       }
-      const data = await getSecurityQuestionForUser(identifier);
-      if (!data) {
-        return res.status(404).json({ error: "Nenhuma conta encontrada com este email ou telefone." });
-      }
-      return res.json({ success: true, question: data.question, email: data.email });
+      const data = await getSecurityQuestionForUser(cleanIdentifier);
+      // Resposta uniforme para impedir enumeração de contas: contas inexistentes
+      // recebem a mesma pergunta genérica e falham depois na redefinição.
+      return res.json({ success: true, question: data?.question || DEFAULT_SECURITY_QUESTION });
     } catch (error) {
       console.error("Erro ao obter pergunta de segurança:", error);
       res.status(500).json({ error: "Erro ao processar pedido de recuperação." });
@@ -1195,15 +1351,16 @@ async function startServer() {
   app.post("/api/auth/forgot-password/reset", authLimiter, async (req, res) => {
     try {
       const { identifier, answer, newPassword } = req.body;
-      if (!identifier || !answer || !newPassword) {
+      const cleanIdentifier = normalizeEmail(identifier);
+      if (!cleanIdentifier || !answer || !newPassword) {
         return res.status(400).json({ error: "Todos os campos são obrigatórios" });
       }
       if (newPassword.length < 6) {
         return res.status(400).json({ error: "A nova palavra-passe deve conter pelo menos 6 caracteres." });
       }
-      const success = await resetPasswordWithSecurityAnswer(identifier, answer, newPassword);
+      const success = await resetPasswordWithSecurityAnswer(cleanIdentifier, answer, newPassword);
       if (!success) {
-        return res.status(400).json({ error: "Resposta de segurança incorreta ou inexistente. Tenta novamente." });
+        return res.status(400).json({ error: "Não foi possível redefinir a palavra-passe com os dados fornecidos." });
       }
       return res.json({ success: true, message: "Palavra-passe atualizada com sucesso!" });
     } catch (error) {
@@ -1432,6 +1589,22 @@ async function startServer() {
       }
     });
   }
+
+  // Handler final de erros: nunca devolve stack traces nem mensagens internas.
+  app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (res.headersSent) return next(err);
+    console.error("Erro não tratado:", err);
+    const status = typeof err === "object" && err !== null && "status" in err
+      ? Number((err as { status?: unknown }).status)
+      : 500;
+    if (status === 413) {
+      return res.status(413).json({ error: "Pedido demasiado grande." });
+    }
+    if (status >= 400 && status < 500) {
+      return res.status(status).json({ error: "Pedido inválido." });
+    }
+    return res.status(500).json({ error: "Erro interno do servidor." });
+  });
 
   app.listen(Number(PORT), "0.0.0.0", () => {
     console.log(`🚀 Servidor Aqkianda Node.js a rodar na porta ${PORT}`);

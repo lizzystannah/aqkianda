@@ -125,6 +125,16 @@ export interface DbMessageRecord {
   createdAt: string;
 }
 
+export function normalizeEmail(raw: string | null | undefined): string {
+  return typeof raw === "string" ? raw.trim().toLowerCase() : "";
+}
+
+export function isValidEmail(raw: string | null | undefined): boolean {
+  const email = normalizeEmail(raw);
+  if (!email || email.length > 254) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
 export interface DbReportRecord {
   id: string;
   listingId: string;
@@ -1042,7 +1052,7 @@ export async function getDbListingById(id: string): Promise<DbListingRecord | nu
 }
 
 export async function createDbListing(item: DbListingRecord): Promise<DbListingRecord> {
-  const finalId = item.id || `lst-${Date.now()}`;
+  const finalId = `lst-${crypto.randomUUID()}`;
   const finalTags = Array.isArray(item.tags) ? item.tags : (item.tags ? String(item.tags).split(",").map(t => t.trim()) : []);
   const tagsStr = JSON.stringify(finalTags);
 
@@ -1068,19 +1078,6 @@ export async function createDbListing(item: DbListingRecord): Promise<DbListingR
           seller_phone, image_url, tags, is_featured, rating, promo_event_id,
           promo_discount, promo_price, status
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-          title = VALUES(title),
-          description = VALUES(description),
-          price = VALUES(price),
-          condition_type = VALUES(condition_type),
-          location = VALUES(location),
-          category_id = VALUES(category_id),
-          seller_name = VALUES(seller_name),
-          seller_phone = VALUES(seller_phone),
-          image_url = VALUES(image_url),
-          tags = VALUES(tags),
-          is_featured = VALUES(is_featured),
-          status = VALUES(status)
       `, [
         finalId,
         finalListing.title,
@@ -1200,8 +1197,9 @@ export async function trackDbListingClick(id: string, type: "view" | "whatsapp" 
 // ==============================================================
 // MESSAGES / CHAT HELPERS
 // ==============================================================
-export async function getDbMessages(userEmailOrConvId: string): Promise<DbMessageRecord[]> {
-  const cleanKey = userEmailOrConvId.trim().toLowerCase();
+export async function getDbMessages(userEmail: string): Promise<DbMessageRecord[]> {
+  const cleanEmail = normalizeEmail(userEmail);
+  if (!cleanEmail) return [];
   if (isDbConnected && pool) {
     try {
       const [rows] = (await pool.query(`
@@ -1213,9 +1211,9 @@ export async function getDbMessages(userEmailOrConvId: string): Promise<DbMessag
           content, image_url as image, is_from_buyer as isFromBuyer,
           DATE_FORMAT(created_at, '%Y-%m-%d %H:%i') as createdAt
         FROM messages
-        WHERE LOWER(conversation_id) = ? OR LOWER(sender_email) = ? OR LOWER(receiver_email) = ?
+        WHERE LOWER(sender_email) = ? OR LOWER(receiver_email) = ?
         ORDER BY created_at ASC
-      `, [cleanKey, cleanKey, cleanKey])) as [mysql.RowDataPacket[], unknown];
+      `, [cleanEmail, cleanEmail])) as [mysql.RowDataPacket[], unknown];
 
       return rows as unknown as DbMessageRecord[];
     } catch (e) {
@@ -1224,7 +1222,7 @@ export async function getDbMessages(userEmailOrConvId: string): Promise<DbMessag
   }
 
   return inMemoryMessages.filter(
-    m => m.conversationId === cleanKey || m.senderEmail.toLowerCase() === cleanKey || (m.receiverEmail && m.receiverEmail.toLowerCase() === cleanKey)
+    m => normalizeEmail(m.senderEmail) === cleanEmail || normalizeEmail(m.receiverEmail) === cleanEmail
   );
 }
 
@@ -1600,7 +1598,8 @@ export async function findDbUserByIdentifier(identifier: string): Promise<DbUser
 }
 
 export async function createDbUser(user: DbUserRecord): Promise<DbUserRecord> {
-  const cleanEmail = user.email.trim().toLowerCase();
+  const finalId = `usr-${crypto.randomUUID()}`;
+  const cleanEmail = normalizeEmail(user.email);
   const cleanPhone = normalizePhoneNumber(user.phone);
   const userRole = isAdminEmail(cleanEmail) ? "admin" : (user.role || "user");
   const registeredAt = user.registeredAt || new Date().toLocaleDateString("pt-AO");
@@ -1625,16 +1624,8 @@ export async function createDbUser(user: DbUserRecord): Promise<DbUserRecord> {
       await pool.query(`
         INSERT INTO users (id, name, email, password_hash, phone, role, avatar, location, security_question, security_answer)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-          name = VALUES(name),
-          phone = VALUES(phone),
-          password_hash = VALUES(password_hash),
-          avatar = VALUES(avatar),
-          location = VALUES(location),
-          security_question = VALUES(security_question),
-          security_answer = VALUES(security_answer)
       `, [
-        user.id,
+        finalId,
         user.name,
         cleanEmail,
         hashedPassword,
@@ -1652,6 +1643,7 @@ export async function createDbUser(user: DbUserRecord): Promise<DbUserRecord> {
 
   const record: DbUserRecord = {
     ...user,
+    id: finalId,
     email: cleanEmail,
     phone: cleanPhone || user.phone,
     role: userRole,

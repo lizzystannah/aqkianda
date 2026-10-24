@@ -2,6 +2,8 @@ import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } fro
 import path from "path";
 import fs from "fs";
 
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
 /**
  * CONFIGURAÇÃO ORGANIZADA DO CLOUDFLARE R2
  */
@@ -213,6 +215,10 @@ export async function uploadImageToStorage(
     } catch {
       throw new Error("Formato de imagem base64 inválido");
     }
+  }
+
+  if (buffer.length > MAX_IMAGE_BYTES) {
+    throw new Error("Imagem demasiado grande. O limite é 5 MB.");
   }
 
   // Validação estrita de assinatura binária (Magic Bytes)

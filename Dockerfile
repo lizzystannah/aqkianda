@@ -11,14 +11,17 @@ RUN npm install
 COPY . .
 RUN npm run build
 
-# Create data directory for persistent strategies storage
-RUN mkdir -p /app/data
+# Create writable runtime directories for the non-root user
+RUN mkdir -p /app/data /app/public/uploads && chown -R node:node /app/data /app/public/uploads
 
 # Port for the server
 EXPOSE 3000
 
 # Set environment to production
 ENV NODE_ENV=production
+
+# Run as the unprivileged built-in node user
+USER node
 
 # Start the Node.js server (this handles both the backend robots and serving the frontend)
 CMD ["npx", "tsx", "server.ts"]
